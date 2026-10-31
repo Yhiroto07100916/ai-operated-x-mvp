@@ -133,7 +133,31 @@ async function writeDrafts(env: Env, articles: Article[], count: number, memorie
       }
     ],
     max_tokens: 1800,
-    temperature: 0.3
+    temperature: 0.3,
+    response_format: {
+      type: 'json_schema',
+      json_schema: {
+        type: 'object',
+        properties: {
+          drafts: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                article_index: { type: 'integer' },
+                body: { type: 'string' },
+                rationale: { type: 'string' },
+                confidence: { type: 'number' }
+              },
+              required: ['article_index', 'body', 'rationale', 'confidence'],
+              additionalProperties: false
+            }
+          }
+        },
+        required: ['drafts'],
+        additionalProperties: false
+      }
+    }
   }) as { response?: string };
   if (!result.response) throw new Error('Workers AI returned an empty response.');
   return parseDrafts(result.response);
