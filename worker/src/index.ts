@@ -1,5 +1,5 @@
-import { parseFeed } from './rss';
-import { parseDrafts, type Draft } from './drafts';
+import { parseFeed } from './rss.ts';
+import { parseDrafts, type Draft } from './drafts.ts';
 interface Env {
   DB: D1Database;
   AI?: Ai;
