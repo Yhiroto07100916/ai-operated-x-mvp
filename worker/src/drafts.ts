@@ -27,21 +27,47 @@ function findArrayEnd(input: string, start: number): number {
   return -1;
 }
 
-export function parseDrafts(raw: string): Draft[] {
-  const candidates: unknown[] = [];
-  for (let start = raw.indexOf('['); start >= 0; start = raw.indexOf('[', start + 1)) {
-    const end = findArrayEnd(raw, start);
+function extractArray(value: unknown, depth = 0): unknown[] | null {
+  if (depth > 5) return null;
+  if (Array.isArray(value)) return value;
+  if (typeof value === 'object' && value !== null) {
+    const record = value as Record<string, unknown>;
+    for (const key of ['drafts', 'response', 'result', 'output']) {
+      if (key in record) {
+        const found = extractArray(record[key], depth + 1);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+  if (typeof value !== 'string') return null;
+
+  try {
+    const parsed: unknown = JSON.parse(value);
+    const found = extractArray(parsed, depth + 1);
+    if (found) return found;
+  } catch {
+    // Fall back to extracting an array from surrounding model text.
+  }
+
+  for (let start = value.indexOf('['); start >= 0; start = value.indexOf('[', start + 1)) {
+    const end = findArrayEnd(value, start);
     if (end < 0) continue;
     try {
-      candidates.push(JSON.parse(raw.slice(start, end + 1)) as unknown);
+      const parsed: unknown = JSON.parse(value.slice(start, end + 1));
+      if (Array.isArray(parsed)) return parsed;
     } catch {
       continue;
     }
   }
+  return null;
+}
 
-  const parsed = candidates.find(Array.isArray);
-  if (!Array.isArray(parsed)) {
-    throw new Error('AI response did not contain a valid JSON array (response length: ' + raw.length + ').');
+export function parseDrafts(raw: unknown): Draft[] {
+  const parsed = extractArray(raw);
+  if (!parsed) {
+    const responseType = raw === null ? 'null' : Array.isArray(raw) ? 'array' : typeof raw;
+    throw new Error('AI response did not contain a valid JSON array (response type: ' + responseType + ').');
   }
   return parsed.filter((item): item is Draft =>
     typeof item === 'object' && item !== null &&

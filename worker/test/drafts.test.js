@@ -31,7 +31,22 @@ test('rejects responses without a valid JSON array', () => {
   assert.throws(() => parseDrafts('申し訳ありません。JSON形式で出力できません。'), /valid JSON array/);
 });
 
-test('parses the JSON Schema envelope returned by Workers AI', () => {
-  const response = JSON.stringify({ drafts: [draft] });
-  assert.deepEqual(parseDrafts(response), [draft]);
+test('parses the JSON Schema envelope returned as a JSON string', () => {
+  assert.deepEqual(parseDrafts(JSON.stringify({ drafts: [draft] })), [draft]);
+});
+
+test('parses the object envelope returned directly by Workers AI', () => {
+  assert.deepEqual(parseDrafts({ drafts: [draft] }), [draft]);
+});
+
+test('parses nested response objects returned by Workers AI', () => {
+  assert.deepEqual(parseDrafts({ response: { drafts: [draft] } }), [draft]);
+});
+
+test('parses JSON text nested inside a response object', () => {
+  assert.deepEqual(parseDrafts({ response: JSON.stringify({ drafts: [draft] }) }), [draft]);
+});
+
+test('rejects unsupported response types with a useful error', () => {
+  assert.throws(() => parseDrafts(42), /response type: number/);
 });
