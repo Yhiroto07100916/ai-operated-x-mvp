@@ -89,7 +89,7 @@ function characterBigrams(value: string): Set<string> {
   return grams;
 }
 
-export function isSimilarDraft(left: string, right: string, threshold = 0.72): boolean {
+export function isSimilarDraft(left: string, right: string, threshold = 0.42): boolean {
   const a = characterBigrams(left);
   const b = characterBigrams(right);
   if (!a.size || !b.size) return false;
