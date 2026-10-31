@@ -13,7 +13,8 @@ const random = (length: number) => { const bytes = new Uint8Array(length); crypt
 const hex = (bytes: Uint8Array) => Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
 async function key(env: OAuthEnv): Promise<CryptoKey> {
   if (!env.X_TOKEN_ENCRYPTION_KEY) throw new Error('X_TOKEN_ENCRYPTION_KEY is not configured.');
-  const raw = unb64(env.X_TOKEN_ENCRYPTION_KEY);
+  let raw: Uint8Array;
+  try { raw = unb64(env.X_TOKEN_ENCRYPTION_KEY); } catch { throw new Error('X_TOKEN_ENCRYPTION_KEY must be a base64-encoded 32-byte key.'); }
   if (raw.byteLength !== 32) throw new Error('X_TOKEN_ENCRYPTION_KEY must be a base64-encoded 32-byte key.');
   return crypto.subtle.importKey('raw', raw, 'AES-GCM', false, ['encrypt', 'decrypt']);
 }
