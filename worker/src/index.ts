@@ -1,4 +1,5 @@
 import { parseFeed } from './rss';
+import { parseDrafts, type Draft } from './drafts';
 interface Env {
   DB: D1Database;
   AI?: Ai;
@@ -14,7 +15,6 @@ type Candidate = {
   confidence: number; created_at: string; reviewed_at: string | null; reviewer_note: string | null;
 };
 type Article = { id: number; source_name: string; title: string; url: string; content: string; published_at: string | null };
-type Draft = { article_index: number; body: string; rationale: string; confidence: number };
 type ReviewMemory = { memory_type: string; content: string };
 const MODEL = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
 const FEEDS = [
@@ -103,14 +103,6 @@ async function collectResearch(env: Env): Promise<CollectionResult> {
   }
   if (inserted) await log(env.DB, 'research.collected', null, inserted + ' new RSS items collected.');
   return { inserted, feeds };
-}
-function parseDrafts(raw: string): Draft[] {
-  const first = raw.indexOf('[');
-  const last = raw.lastIndexOf(']');
-  if (first < 0 || last <= first) throw new Error('AI response did not contain a JSON array.');
-  const parsed = JSON.parse(raw.slice(first, last + 1)) as unknown;
-  if (!Array.isArray(parsed)) throw new Error('AI response must be an array.');
-  return parsed as Draft[];
 }
 async function writeDrafts(env: Env, articles: Article[], count: number, memories: ReviewMemory[]): Promise<Draft[]> {
   if (!env.AI) throw new Error('Workers AI binding is not configured.');
