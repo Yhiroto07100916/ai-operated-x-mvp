@@ -9,11 +9,18 @@ const apiBase = config.public.apiBase as string;
 const token = ref('');
 const status = ref('pending');
 const items = ref<Candidate[]>([]);
+const memories = ref<Array<{ id: number; memory_type: string; content: string; confidence: number; created_at: string }>>([]);
 const loading = ref(false);
 const error = ref('');
 const notice = ref('');
 const headers = computed(() => token.value ? { Authorization: `Bearer ${token.value}` } : {});
 
+async function loadMemory() {
+  try {
+    const result = await $fetch<{ items: typeof memories.value }>(`${apiBase}/api/memory`, { headers: headers.value });
+    memories.value = result.items.slice(0, 6);
+  } catch { memories.value = []; }
+}
 async function load() {
   loading.value = true; error.value = '';
   try {
@@ -27,7 +34,7 @@ async function review(item: Candidate, action: 'approve' | 'reject') {
   try {
     await $fetch(`${apiBase}/api/candidates/${item.id}/${action}`, { method: 'POST', headers: headers.value });
     notice.value = action === 'approve' ? '承認しました（外部には投稿されません）' : '却下しました';
-    await load();
+    await load(); await loadMemory();
   } catch (e) { error.value = e instanceof Error ? e.message : '更新に失敗しました'; }
 }
 async function generate() {
@@ -39,7 +46,7 @@ async function generate() {
   } catch (e) { error.value = e instanceof Error ? e.message : '生成に失敗しました'; }
 }
 function formatDate(value: string) { return new Date(value).toLocaleString('ja-JP'); }
-onMounted(load);
+onMounted(() => { load(); loadMemory(); });
 </script>
 
 <template>
@@ -60,6 +67,14 @@ onMounted(load);
       <div><span>表示中</span><strong>{{ items.length }}</strong></div>
       <div><span>目標頻度</span><strong>6–10<span class="unit">件/日</span></strong></div>
       <div><span>公開連携</span><strong class="off">停止中</strong></div>
+    </section>
+
+    <section v-if="memories.length" class="memory-panel">
+      <div class="memory-heading"><h2>AIの学習メモ</h2><span>承認・却下の傾向を次の候補に反映</span></div>
+      <article v-for="memory in memories" :key="memory.id" class="memory-item">
+        <strong>{{ memory.memory_type === 'review_approved' ? '承認' : '却下' }}</strong>
+        <p>{{ memory.content }}</p>
+      </article>
     </section>
 
     <div v-if="notice" class="notice success">{{ notice }}</div>
@@ -88,5 +103,5 @@ onMounted(load);
 </template>
 
 <style>
-:root{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#e7edf5;background:#0b1422}*{box-sizing:border-box}body{margin:0}.shell{max-width:920px;margin:0 auto;padding:42px 22px 70px}.topbar{display:flex;justify-content:space-between;align-items:flex-start;gap:18px;margin-bottom:28px}.eyebrow{font-size:11px;letter-spacing:.16em;color:#8ba7c5;font-weight:700}.topbar h1{font-size:32px;margin:6px 0}.sub,.list-head p{color:#93a4b8;margin:0;font-size:14px}.mode,.kind{font-size:10px;letter-spacing:.08em;border:1px solid #31516e;color:#a9c7e6;border-radius:20px;padding:7px 10px;white-space:nowrap}.notice{padding:13px 15px;border-radius:12px;margin:16px 0;font-size:13px;display:flex;gap:10px;flex-wrap:wrap}.warning{background:#302718;border:1px solid #70552a;color:#f1d5a1}.success{background:#123328;border:1px solid #24694d;color:#b7f0d2}.danger{background:#3b2026;border:1px solid #743b48;color:#ffc4ce}.toolbar{display:flex;justify-content:space-between;align-items:end;gap:18px;margin:24px 0}.token{font-size:12px;color:#9aadc2;display:grid;gap:7px;flex:1;max-width:430px}input,select{background:#111f31;border:1px solid #2a4058;color:#e7edf5;border-radius:8px;padding:10px 12px;font:inherit}.actions,.candidate-actions{display:flex;gap:9px}button{background:#d5a64e;color:#17130c;border:0;border-radius:8px;padding:10px 15px;font-weight:700;cursor:pointer}.secondary,.reject{background:#20344a;color:#d7e4f1}.reject{color:#ffc4ce}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:24px 0}.stats>div{background:#111f31;border:1px solid #223850;border-radius:12px;padding:16px}.stats span{display:block;color:#8fa4ba;font-size:12px}.stats strong{display:block;font-size:24px;margin-top:7px}.stats .unit{display:inline;font-size:12px;margin-left:4px}.stats .off{font-size:17px;color:#f1c47e}.list-head{display:flex;justify-content:space-between;align-items:center;margin:34px 0 14px}.list-head h2{margin:0 0 5px;font-size:20px}.list-head select{min-width:140px}.candidate{background:#111f31;border:1px solid #263c54;border-radius:14px;padding:19px;margin:12px 0}.candidate-meta{display:flex;align-items:center;gap:12px;color:#8fa4ba;font-size:11px;flex-wrap:wrap}.body{font-size:16px;line-height:1.8;white-space:pre-wrap;margin:17px 0}.reason{border-left:2px solid #486581;padding:4px 0 4px 12px;color:#a7b8ca;font-size:12px}.reason p{margin:5px 0}.source-link{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;margin-top:12px;font-size:12px;color:#8fa4ba}.source-link a{color:#a9c7e6;overflow-wrap:anywhere}.candidate-actions{justify-content:flex-end;margin-top:17px}.confidence{margin-left:auto}.empty{border:1px dashed #344b63;border-radius:12px;padding:30px;text-align:center;color:#8fa4ba;font-size:13px}footer{text-align:center;color:#63788f;font-size:11px;margin-top:45px}@media(max-width:640px){.shell{padding:28px 15px 50px}.topbar{display:block}.mode{display:inline-block;margin-top:14px}.toolbar{display:block}.token{max-width:none}.actions{margin-top:12px}.actions button{flex:1}.stats{gap:7px}.stats>div{padding:11px}.stats strong{font-size:20px}.list-head{align-items:flex-end}.candidate{padding:15px}.body{font-size:15px}}
+:root{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#e7edf5;background:#0b1422}*{box-sizing:border-box}body{margin:0}.shell{max-width:920px;margin:0 auto;padding:42px 22px 70px}.topbar{display:flex;justify-content:space-between;align-items:flex-start;gap:18px;margin-bottom:28px}.eyebrow{font-size:11px;letter-spacing:.16em;color:#8ba7c5;font-weight:700}.topbar h1{font-size:32px;margin:6px 0}.sub,.list-head p{color:#93a4b8;margin:0;font-size:14px}.mode,.kind{font-size:10px;letter-spacing:.08em;border:1px solid #31516e;color:#a9c7e6;border-radius:20px;padding:7px 10px;white-space:nowrap}.notice{padding:13px 15px;border-radius:12px;margin:16px 0;font-size:13px;display:flex;gap:10px;flex-wrap:wrap}.warning{background:#302718;border:1px solid #70552a;color:#f1d5a1}.success{background:#123328;border:1px solid #24694d;color:#b7f0d2}.danger{background:#3b2026;border:1px solid #743b48;color:#ffc4ce}.toolbar{display:flex;justify-content:space-between;align-items:end;gap:18px;margin:24px 0}.token{font-size:12px;color:#9aadc2;display:grid;gap:7px;flex:1;max-width:430px}input,select{background:#111f31;border:1px solid #2a4058;color:#e7edf5;border-radius:8px;padding:10px 12px;font:inherit}.actions,.candidate-actions{display:flex;gap:9px}button{background:#d5a64e;color:#17130c;border:0;border-radius:8px;padding:10px 15px;font-weight:700;cursor:pointer}.secondary,.reject{background:#20344a;color:#d7e4f1}.reject{color:#ffc4ce}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:24px 0}.stats>div{background:#111f31;border:1px solid #223850;border-radius:12px;padding:16px}.stats span{display:block;color:#8fa4ba;font-size:12px}.stats strong{display:block;font-size:24px;margin-top:7px}.stats .unit{display:inline;font-size:12px;margin-left:4px}.stats .off{font-size:17px;color:#f1c47e}.memory-panel{background:#101d2c;border:1px solid #263c54;border-radius:12px;padding:16px;margin:22px 0}.memory-heading{display:flex;justify-content:space-between;gap:10px;align-items:baseline;flex-wrap:wrap}.memory-heading h2{font-size:15px;margin:0}.memory-heading span{font-size:11px;color:#8298af}.memory-item{border-top:1px solid #263c54;margin-top:12px;padding-top:10px}.memory-item strong{font-size:11px;color:#d8b36f}.memory-item p{font-size:12px;line-height:1.6;color:#a7b8ca;margin:5px 0 0}.list-head{display:flex;justify-content:space-between;align-items:center;margin:34px 0 14px}.list-head h2{margin:0 0 5px;font-size:20px}.list-head select{min-width:140px}.candidate{background:#111f31;border:1px solid #263c54;border-radius:14px;padding:19px;margin:12px 0}.candidate-meta{display:flex;align-items:center;gap:12px;color:#8fa4ba;font-size:11px;flex-wrap:wrap}.body{font-size:16px;line-height:1.8;white-space:pre-wrap;margin:17px 0}.reason{border-left:2px solid #486581;padding:4px 0 4px 12px;color:#a7b8ca;font-size:12px}.reason p{margin:5px 0}.source-link{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;margin-top:12px;font-size:12px;color:#8fa4ba}.source-link a{color:#a9c7e6;overflow-wrap:anywhere}.candidate-actions{justify-content:flex-end;margin-top:17px}.confidence{margin-left:auto}.empty{border:1px dashed #344b63;border-radius:12px;padding:30px;text-align:center;color:#8fa4ba;font-size:13px}footer{text-align:center;color:#63788f;font-size:11px;margin-top:45px}@media(max-width:640px){.shell{padding:28px 15px 50px}.topbar{display:block}.mode{display:inline-block;margin-top:14px}.toolbar{display:block}.token{max-width:none}.actions{margin-top:12px}.actions button{flex:1}.stats{gap:7px}.stats>div{padding:11px}.stats strong{font-size:20px}.list-head{align-items:flex-end}.candidate{padding:15px}.body{font-size:15px}}
 </style>
