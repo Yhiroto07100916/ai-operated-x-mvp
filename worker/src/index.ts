@@ -318,7 +318,7 @@ export default {
     }
     if (url.pathname === '/api/health' && request.method === 'GET') {
       return cors(request, json({
-        ok: true, mode: env.AI ? 'ai' : 'unconfigured', publishingEnabled: Boolean(env.X_USER_ACCESS_TOKEN), time: new Date().toISOString()
+        ok: true, mode: env.AI ? 'ai' : 'unconfigured', publishingEnabled: Boolean(env.X_USER_ACCESS_TOKEN) || (await getOAuthStatus(env)).connected, time: new Date().toISOString()
       }), env);
     }
     if (!authorized(request, env)) return cors(request, json({ error: 'Unauthorized' }, 401), env);
