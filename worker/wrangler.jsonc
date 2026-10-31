@@ -16,7 +16,7 @@
     {
       "binding": "DB",
       "database_name": "ai-operated-x-db",
-      "database_id": "REPLACE_WITH_D1_DATABASE_ID",
+      "database_id": "8df676aa-f1ea-4c33-8e3d-811541e043f7",
       "migrations_dir": "migrations"
     }
   ],
