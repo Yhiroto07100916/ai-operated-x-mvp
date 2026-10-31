@@ -1,34 +1,52 @@
-# X publishing setup
+# X OAuth and publishing setup
 
-The publishing workflow is disabled by default and starts in `approval` mode.
+The Worker supports X OAuth 2.0 Authorization Code Flow with PKCE. The dashboard starts the authorization flow; the Worker validates one-time state, exchanges the authorization code, encrypts the access and refresh tokens with AES-GCM, and stores only the encrypted token envelope in D1.
 
-## Modes
+## Developer app settings
 
-- `approval`: a pending candidate is published only after an administrator approves it.
-- `automatic`: newly generated candidates are approved and published without manual review.
-- `paused`: candidate generation continues, but publication is skipped.
+Configure the X app as a web app / automated app / bot with read and write permissions. Direct Message permissions and email collection are not needed.
 
-Switching to `automatic` is rejected unless a user-context X access token is configured.
+Register this exact callback URL:
 
-## X user access token
+`https://ai-operated-x-worker.seiryofes-2027.workers.dev/api/auth/x/callback`
 
-Set `X_USER_ACCESS_TOKEN` as a Cloudflare Worker secret. It must be an OAuth 2.0 user-context access token for the account that will publish, with the `tweet.write` scope (and the appropriate X app permissions). The existing `X_BEARER_TOKEN` is app-only/read access for trend lookup and cannot publish posts.
+The OAuth flow requests only `tweet.write`, `users.read`, and `offline.access`. The Worker uses `users.read` only to display the connected account name. The `offline.access` scope is required for refresh-token issuance.
 
-Never put either token in the dashboard, Pages environment variables, source code, or Git.
+## Worker configuration
 
-Example:
+Set the X OAuth Client ID as a Worker variable named `X_CLIENT_ID`. Store the Client Secret and a random 32-byte encryption key (base64 encoded) as Worker secrets:
 
 ```bash
 cd worker
-npx wrangler secret put X_USER_ACCESS_TOKEN
+npx wrangler secret put X_CLIENT_SECRET
+openssl rand -base64 32
+npx wrangler secret put X_TOKEN_ENCRYPTION_KEY
 ```
 
-The command prompts for the token; do not paste it into chat or a source file.
+Use the output of the random-key command as the secret value when prompted. Never paste credentials into chat, Git, Pages variables, or source code. Keep a secure backup of the encryption key: losing it makes the stored token ciphertext unrecoverable and requires reconnecting the account.
 
-## Duplicate protection and uncertain outcomes
+The callback URL is configured as `X_OAUTH_REDIRECT_URI` in `wrangler.jsonc`.
 
-Each candidate can have only one publication job. A successful response stores the X post ID and marks the candidate as published. A definitive API rejection is marked failed. A timeout or server-side ambiguous response is marked unknown and is not automatically retried, because X may have accepted the post even when the response was lost. Check the X account before taking any manual recovery action.
+## Database and deployment
 
-## Rollout
+Apply migrations before deploying:
 
-Apply D1 migrations before deploying the Worker. Deploy the dashboard separately after building it. Keep the mode at `approval` until the user-context token and a controlled test are verified. Automatic mode should be enabled explicitly in the dashboard.
+```bash
+cd worker
+npx wrangler d1 migrations apply ai-operated-x-db --remote
+npx wrangler deploy
+```
+
+Build and deploy the dashboard separately after the Worker is ready.
+
+## Connection and publishing safety
+
+The dashboard's X account connection uses an authenticated admin action to begin OAuth. State values are one-time and expire after ten minutes. PKCE uses S256. Tokens are encrypted with AES-GCM before they are written to D1. Disconnecting attempts to revoke the refresh token, deletes local token material, and resets publishing mode to `approval`.
+
+Publishing starts in `approval` mode. Automatic mode remains a separate explicit setting and must not be enabled during initial connection testing. Each candidate still has one publication job; ambiguous network outcomes are not retried automatically.
+
+The older `X_USER_ACCESS_TOKEN` secret remains as a temporary compatibility fallback. Prefer the OAuth connection and remove that legacy secret after confirming the new flow works.
+
+## Data use
+
+The application retrieves Japan trend metadata as a research relevance signal and combines it with RSS articles. Trend names are not treated as evidence. Posts are grounded in source articles. The application does not use DMs, automated likes, follows, reposts, or unsolicited replies.
