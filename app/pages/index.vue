@@ -41,7 +41,7 @@ async function generate() {
   notice.value = ''; error.value = '';
   try {
     const result = await $fetch<{ created: number }>(`${apiBase}/api/generate`, { method: 'POST', headers: headers.value });
-    notice.value = `${result.created}件の候補を生成しました（モック）`;
+    notice.value = `${result.created}件の候補を生成しました（Workers AI）`;
     status.value = 'pending'; await load();
   } catch (e) { error.value = e instanceof Error ? e.message : '生成に失敗しました'; }
 }
@@ -53,7 +53,7 @@ onMounted(() => { load(); loadMemory(); });
   <main class="shell">
     <header class="topbar">
       <div><p class="eyebrow">AUTONOMOUS AGENT / MVP</p><h1>AI-operated X</h1><p class="sub">AIが考えた投稿候補を確認・承認する管理画面</p></div>
-      <span class="mode">MOCK MODE · PUBLISHING OFF</span>
+      <span class="mode">AI DRAFT MODE · PUBLISHING OFF</span>
     </header>
 
     <section class="notice warning"><strong>安全モード</strong><span>現在は候補生成と承認フローのみ。Xへの投稿・リポストは実行されません。</span></section>
@@ -85,7 +85,7 @@ onMounted(() => { load(); loadMemory(); });
     </section>
 
     <div v-if="loading" class="empty">読み込み中…</div>
-    <div v-else-if="!items.length" class="empty">候補はありません。「候補を生成」からモック候補を作成できます。</div>
+    <div v-else-if="!items.length" class="empty">候補はありません。「候補を生成」からAIで候補を生成できます。</div>
     <article v-for="item in items" :key="item.id" class="candidate">
       <div class="candidate-meta"><span class="kind">{{ item.kind === 'post' ? 'POST' : 'REPOST' }}</span><span>{{ formatDate(item.created_at) }}</span><span class="confidence">確信度 {{ Math.round(item.confidence * 100) }}%</span></div>
       <p class="body">{{ item.body }}</p>

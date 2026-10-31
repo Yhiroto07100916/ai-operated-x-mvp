@@ -31,7 +31,7 @@ const json = (data: unknown, status = 200) => new Response(JSON.stringify(data),
 function cors(request: Request, response: Response, env: Env): Response {
   const origin = request.headers.get('Origin');
   const headers = new Headers(response.headers);
-  if (origin && /^https?:\/\/(localhost:\d+|127\.0\.0\.1:\d+)$/.test(origin)) {
+  if (origin && (origin === env.APP_ORIGIN || /^https?:\/\/(localhost:\d+|127\.0\.0\.1:\d+)$/.test(origin))) {
     headers.set('access-control-allow-origin', origin);
     headers.set('vary', 'Origin');
   }
@@ -155,6 +155,7 @@ async function generateCandidates(env: Env, requested = 3) {
   const target = Math.max(1, Math.min(10, Number(env.CANDIDATE_TARGET_PER_DAY || 8)));
   const count = Math.min(requested, Math.max(0, target - Number(existing?.count || 0)));
   if (!count) return { created: 0, message: 'Daily candidate target reached.' };
+  if (!env.AI) return { created: 0, mode: 'unconfigured', message: 'Workers AI binding is not configured.' };
   await collectResearch(env);
   const rows = await env.DB.prepare(
     'SELECT id, source_name, title, url, content, published_at FROM research_items ORDER BY fetched_at DESC LIMIT 15'
