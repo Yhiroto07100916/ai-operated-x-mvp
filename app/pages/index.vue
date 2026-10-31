@@ -71,7 +71,7 @@ async function generate() {
   try {
     const result = await $fetch<{ created: number }>(`${apiBase}/api/generate`, { method: 'POST', headers: headers.value });
     notice.value = `${result.created}件の候補を生成しました（Workers AI）`;
-    status.value = 'pending'; await load();
+    status.value = 'pending'; await load(); await loadTrends();
   } catch (e) { error.value = e instanceof Error ? e.message : '生成に失敗しました'; }
 }
 function formatDate(value: string) { return new Date(value).toLocaleString('ja-JP'); }
