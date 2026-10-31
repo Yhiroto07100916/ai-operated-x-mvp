@@ -1,6 +1,7 @@
 import { parseFeed } from './rss.ts';
 import { isSimilarDraft, parseDrafts, type Draft } from './drafts.ts';
 import { fetchXTrends, type XTrend } from './trends.ts';
+import { beginOAuth, completeOAuth, disconnectOAuth, getOAuthStatus, getValidAccessToken } from './x-oauth.ts';
 interface Env {
   DB: D1Database;
   AI?: Ai;
@@ -11,6 +12,10 @@ interface Env {
   APP_ORIGIN?: string;
   X_BEARER_TOKEN?: string;
   X_USER_ACCESS_TOKEN?: string;
+  X_CLIENT_ID?: string;
+  X_CLIENT_SECRET?: string;
+  X_OAUTH_REDIRECT_URI?: string;
+  X_TOKEN_ENCRYPTION_KEY?: string;
 }
 type Candidate = {
   id: string; kind: 'post' | 'repost'; status: string; body: string;
@@ -179,7 +184,12 @@ async function getPublishingMode(db: D1Database): Promise<PublishingMode> {
   return row?.value === 'automatic' || row?.value === 'paused' ? row.value : 'approval';
 }
 async function publishCandidate(env: Env, candidateId: string): Promise<{ published: boolean; reason?: string; postId?: string }> {
-  if (!env.X_USER_ACCESS_TOKEN) return { published: false, reason: 'X_USER_ACCESS_TOKEN is not configured.' };
+  let accessToken: string | null = null;
+  try { accessToken = await getValidAccessToken(env); } catch (error) {
+    return { published: false, reason: error instanceof Error ? error.message : 'X account token refresh failed.' };
+  }
+  if (!accessToken && env.X_USER_ACCESS_TOKEN) accessToken = env.X_USER_ACCESS_TOKEN;
+  if (!accessToken) return { published: false, reason: 'X account is not connected.' };
   const candidate = await env.DB.prepare(
     "SELECT id, body, status FROM candidates WHERE id = ? AND status IN ('approved', 'pending')"
   ).bind(candidateId).first<{ id: string; body: string; status: string }>();
@@ -191,7 +201,7 @@ async function publishCandidate(env: Env, candidateId: string): Promise<{ publis
   try {
     const response = await fetch('https://api.x.com/2/tweets', {
       method: 'POST',
-      headers: { authorization: 'Bearer ' + env.X_USER_ACCESS_TOKEN, 'content-type': 'application/json' },
+      headers: { authorization: 'Bearer ' + accessToken, 'content-type': 'application/json' },
       body: JSON.stringify({ text: candidate.body }),
       signal: AbortSignal.timeout(15000)
     });
@@ -291,6 +301,21 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     if (request.method === 'OPTIONS') return cors(request, new Response(null, { status: 204 }), env);
     const url = new URL(request.url);
+    if (url.pathname === '/api/auth/x/callback' && request.method === 'GET') {
+      const code = url.searchParams.get('code');
+      const state = url.searchParams.get('state');
+      const oauthError = url.searchParams.get('error');
+      if (oauthError || !code || !state) {
+        return Response.redirect((env.APP_ORIGIN || 'https://ai-operated-x-admin.pages.dev') + '/?x_oauth=failed', 302);
+      }
+      try {
+        await completeOAuth(env, state, code);
+        return Response.redirect((env.APP_ORIGIN || 'https://ai-operated-x-admin.pages.dev') + '/?x_oauth=connected', 302);
+      } catch (error) {
+        console.error('X OAuth callback failed', error instanceof Error ? error.message : String(error));
+        return Response.redirect((env.APP_ORIGIN || 'https://ai-operated-x-admin.pages.dev') + '/?x_oauth=failed', 302);
+      }
+    }
     if (url.pathname === '/api/health' && request.method === 'GET') {
       return cors(request, json({
         ok: true, mode: env.AI ? 'ai' : 'unconfigured', publishingEnabled: Boolean(env.X_USER_ACCESS_TOKEN), time: new Date().toISOString()
@@ -299,7 +324,16 @@ export default {
     if (!authorized(request, env)) return cors(request, json({ error: 'Unauthorized' }, 401), env);
     let response: Response;
     try {
-      if (url.pathname === '/api/settings' && request.method === 'GET') {
+      if (url.pathname === '/api/auth/x/start' && request.method === 'POST') {
+        const authorizeUrl = await beginOAuth(env);
+        response = json({ authorizeUrl });
+      } else if (url.pathname === '/api/auth/x/status' && request.method === 'GET') {
+        response = json(await getOAuthStatus(env));
+      } else if (url.pathname === '/api/auth/x/disconnect' && request.method === 'POST') {
+        await disconnectOAuth(env);
+        await log(env.DB, 'x.account.disconnected', null, 'X account disconnected and publishing mode reset to approval.');
+        response = json({ ok: true, connected: false, publishingMode: 'approval' });
+      } else if (url.pathname === '/api/settings' && request.method === 'GET') {
         const mode = await getPublishingMode(env.DB);
         response = json({ publishingMode: mode, postingConfigured: Boolean(env.X_USER_ACCESS_TOKEN) });
       } else if (url.pathname === '/api/settings' && request.method === 'POST') {
@@ -313,7 +347,7 @@ export default {
           await env.DB.prepare("INSERT INTO app_settings (key, value, updated_at) VALUES ('publishing_mode', ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at")
             .bind(mode, new Date().toISOString()).run();
           await log(env.DB, 'settings.publishing_mode', null, 'Publishing mode changed to ' + mode);
-          response = json({ ok: true, publishingMode: mode, postingConfigured: Boolean(env.X_USER_ACCESS_TOKEN) });
+          response = json({ ok: true, publishingMode: mode, postingConfigured: (await getOAuthStatus(env)).connected || Boolean(env.X_USER_ACCESS_TOKEN) });
         }
       } else if (url.pathname === '/api/candidates' && request.method === 'GET') {
         const status = url.searchParams.get('status');
