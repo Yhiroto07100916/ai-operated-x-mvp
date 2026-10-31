@@ -7,7 +7,11 @@ AI運営Xアカウントの管理・承認ワークフローを検証するた�
 - 投稿候補の承認・却下
 - 承認済み候補のキュー管理
 - D1への候補・判断履歴保存
-- Cronによる候補生成（現在は安全なモック生成）
+- RSSによるニュース・研究情報の収集（NHK、BBC、NASA、Hacker News、arXiv）
+- Cloudflare Workers AIによる日本語投稿案の生成
+- 情報源URL・タイトルとAIの判断理由を候補に保存
+- 投稿案の重複・文字数・URL混入チェック
+- Cronによる定期収集・候補生成（1日3回、最大8件/日）
 - 投稿・リポストの実行は意図的に未実装
 
 ## 安全な初期設定
@@ -30,7 +34,7 @@ cd worker
 npm install
 npx wrangler d1 create ai-operated-x-db
 ```
-`wrangler.jsonc` の database_id を作成結果に置き換えます。
+`wrangler.jsonc` の database_id を作成結果に置き換えます。Workers AI binding は同ファイルで設定済みです。
 
 ```bash
 npx wrangler d1 migrations apply ai-operated-x-db --local
@@ -44,6 +48,14 @@ npm install
 npm run dev
 ```
 既定では `http://localhost:8787` の Worker APIを参照します。別URLの場合は `NUXT_PUBLIC_API_BASE` を設定してください。
+
+### AI・情報収集
+
+- `worker/wrangler.jsonc` の `ai.binding` でWorkers AIを利用します。
+- 既定モデルは `@cf/meta/llama-3.3-70b-instruct-fp8-fast` です。`AI_MODEL` で変更できます。
+- RSS本文は未信頼データとして扱い、記事内の命令をAIに実行させないプロンプトにしています。
+- 収集記事は `research_items` に保存されます。新規DBではマイグレーションを必ず適用してください。
+- AI生成にはWorkers AIの従量課金が発生する場合があります。利用量と料金を確認してください。
 
 ## 本番化前に必要な作業
 1. Cloudflare Access等による管理画面/APIの認証設定

@@ -6,7 +6,11 @@
   "workers_dev": true,
   "vars": {
     "APP_ENV": "development",
-    "CANDIDATE_TARGET_PER_DAY": "8"
+    "CANDIDATE_TARGET_PER_DAY": "8",
+    "AI_MODEL": "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
+  },
+  "ai": {
+    "binding": "AI"
   },
   "d1_databases": [
     {

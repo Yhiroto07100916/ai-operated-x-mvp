@@ -1,22 +1,33 @@
-# Architecture notes
+# Architecture
 
-## MVP boundaries
+## Runtime
+- Nuxt 4 dashboard in `app/`
+- Cloudflare Worker API in `worker/`
+- D1 stores candidates, research items, memory, and activity logs
+- Workers AI creates draft posts; no external X publishing integration exists
 
-The first milestone validates the human approval workflow and durable state. It intentionally does not publish, repost, like, follow, reply, or scrape X.
+## Research and generation flow
+1. Cron or an administrator calls `POST /api/generate`.
+2. Worker fetches a fixed allowlist of RSS/Atom feeds.
+3. Feed entries are normalized and deduplicated by canonical URL in `research_items`.
+4. Up to 15 recent entries are provided to Workers AI as untrusted reference material.
+5. AI returns structured draft candidates with an article index, rationale, and confidence.
+6. Worker validates source index, body length, URL absence, and recent exact duplicates.
+7. Candidate is stored as `pending`; a human reviews it in the dashboard.
 
-## Candidate lifecycle
+## Safety boundaries
+- RSS content is untrusted input. It cannot trigger tools or external actions.
+- The model is instructed not to invent human experiences or unsupported facts.
+- Candidates are drafts only. Approval does not publish to X.
+- X OAuth, publishing, reposting, likes, replies, and follows are not implemented.
+- Production must configure an admin token and protect the dashboard/API with Cloudflare Access.
 
-`pending -> approved | rejected`
-
-Approved candidates are only marked approved in this milestone. A later integration must add a separate, explicitly enabled publisher with idempotency, rate-limit handling, an emergency stop, and audit logging.
-
-## Daily target
-
-The scheduler runs three times daily. It creates up to three mock candidates per run and caps the number of pending/approved candidates created in a rolling 24-hour window at the configured target (default 8). This is a candidate-generation target, not a promise to publish that many posts.
-
-## Security
-
-- Configure Cloudflare Access for the dashboard and Worker.
-- Set `APP_ENV=production` and `ADMIN_TOKEN` as a Worker secret.
-- Never commit API tokens or `.dev.vars`.
-- Keep publishing disabled until all platform eligibility, terms, and operational controls are reviewed.
+## API
+- `GET /api/health`
+- `GET /api/candidates?status=pending`
+- `GET /api/research`
+- `GET /api/activity`
+- `GET /api/memory`
+- `POST /api/generate`
+- `POST /api/candidates/:id/approve`
+- `POST /api/candidates/:id/reject`
