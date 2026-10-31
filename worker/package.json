@@ -8,7 +8,8 @@
     "deploy": "wrangler deploy",
     "db:migrate:local": "wrangler d1 migrations apply ai-operated-x-db --local",
     "db:migrate:remote": "wrangler d1 migrations apply ai-operated-x-db --remote",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --disable-warning=ExperimentalWarning --experimental-strip-types --test test/*.test.js"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20261031.1",
