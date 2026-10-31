@@ -16,7 +16,9 @@ async function key(env: OAuthEnv): Promise<CryptoKey> {
   let raw: Uint8Array;
   try { raw = unb64(env.X_TOKEN_ENCRYPTION_KEY); } catch { throw new Error('X_TOKEN_ENCRYPTION_KEY must be a base64-encoded 32-byte key.'); }
   if (raw.byteLength !== 32) throw new Error('X_TOKEN_ENCRYPTION_KEY must be a base64-encoded 32-byte key.');
-  return crypto.subtle.importKey('raw', raw, 'AES-GCM', false, ['encrypt', 'decrypt']);
+  const rawBuffer = new ArrayBuffer(raw.byteLength);
+  new Uint8Array(rawBuffer).set(raw);
+  return crypto.subtle.importKey('raw', rawBuffer, 'AES-GCM', false, ['encrypt', 'decrypt']);
 }
 export async function encryptTokens(env: OAuthEnv, tokens: XTokens): Promise<string> {
   const iv = random(12);
