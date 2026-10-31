@@ -13,7 +13,7 @@ function findArrayEnd(input: string, start: number): number {
     const char = input[index];
     if (inString) {
       if (escaped) escaped = false;
-      else if (char === '\\\\') escaped = true;
+      else if (char === '\\') escaped = true;
       else if (char === '"') inString = false;
       continue;
     }
