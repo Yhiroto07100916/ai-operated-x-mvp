@@ -30,3 +30,8 @@ test('filters malformed draft objects from a valid array', () => {
 test('rejects responses without a valid JSON array', () => {
   assert.throws(() => parseDrafts('申し訳ありません。JSON形式で出力できません。'), /valid JSON array/);
 });
+
+test('parses the JSON Schema envelope returned by Workers AI', () => {
+  const response = JSON.stringify({ drafts: [draft] });
+  assert.deepEqual(parseDrafts(response), [draft]);
+});
