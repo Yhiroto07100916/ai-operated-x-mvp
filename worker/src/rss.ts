@@ -25,6 +25,11 @@ function readTag(block: string, tag: string): string {
   return match?.[1] || '';
 }
 
+function normalizePublishedDate(value: string): string | null {
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : null;
+}
+
 export function parseFeed(xml: string, source: string): ParsedArticle[] {
   const blocks = xml.match(/<(?:item|entry)\b[\s\S]*?<\/(?:item|entry)\s*>/gi) || [];
   const output: ParsedArticle[] = [];
@@ -39,7 +44,7 @@ export function parseFeed(xml: string, source: string): ParsedArticle[] {
     try {
       const parsed = new URL(url);
       if (!['http:', 'https:'].includes(parsed.protocol) || !title || !content) continue;
-      output.push({ source_name: source, title, url: parsed.toString(), content, published_at: published || null });
+      output.push({ source_name: source, title, url: parsed.toString(), content, published_at: published ? normalizePublishedDate(published) : null });
     } catch { continue; }
   }
   return output;
