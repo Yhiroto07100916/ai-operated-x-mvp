@@ -378,7 +378,10 @@ export default {
             }
             await log(env.DB, 'candidate.' + action, candidateId, note || 'No reviewer note.');
             if (action === 'approve') {
-              const publication = await publishCandidate(env, candidateId);
+              const mode = await getPublishingMode(env.DB);
+              const publication = mode === 'paused'
+                ? { published: false, reason: 'Publishing is paused.' }
+                : await publishCandidate(env, candidateId);
               response = json({ ok: true, status: publication.published ? 'published' : 'approved', publication });
             } else {
               response = json({ ok: true, status });
