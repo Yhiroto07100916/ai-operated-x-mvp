@@ -335,14 +335,15 @@ export default {
         response = json({ ok: true, connected: false, publishingMode: 'approval' });
       } else if (url.pathname === '/api/settings' && request.method === 'GET') {
         const mode = await getPublishingMode(env.DB);
-        response = json({ publishingMode: mode, postingConfigured: Boolean(env.X_USER_ACCESS_TOKEN) });
+        const xAccount = await getOAuthStatus(env);
+        response = json({ publishingMode: mode, postingConfigured: xAccount.connected || Boolean(env.X_USER_ACCESS_TOKEN), xAccount });
       } else if (url.pathname === '/api/settings' && request.method === 'POST') {
         const body = await request.json().catch(() => ({})) as { publishingMode?: unknown };
         const mode = body.publishingMode;
         if (mode !== 'approval' && mode !== 'automatic' && mode !== 'paused') {
           response = json({ error: 'Invalid publishing mode.' }, 400);
-        } else if (mode === 'automatic' && !env.X_USER_ACCESS_TOKEN) {
-          response = json({ error: 'X user access token is not configured. Automatic mode cannot be enabled.' }, 409);
+        } else if (mode === 'automatic' && !(await getOAuthStatus(env)).connected && !env.X_USER_ACCESS_TOKEN) {
+          response = json({ error: 'Connect an X account before enabling automatic mode.' }, 409);
         } else {
           await env.DB.prepare("INSERT INTO app_settings (key, value, updated_at) VALUES ('publishing_mode', ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at")
             .bind(mode, new Date().toISOString()).run();
@@ -394,8 +395,8 @@ export default {
           const currentMode = await getPublishingMode(env.DB);
           if (action === 'approve' && currentMode === 'paused') {
             response = json({ error: 'Publishing is paused. Resume publishing before approving a candidate.' }, 409);
-          } else if (action === 'approve' && !env.X_USER_ACCESS_TOKEN) {
-            response = json({ error: 'X user access token is not configured. Approval cannot publish yet.' }, 409);
+          } else if (action === 'approve' && !(await getOAuthStatus(env)).connected && !env.X_USER_ACCESS_TOKEN) {
+            response = json({ error: 'Connect an X account before publishing an approved candidate.' }, 409);
           } else {
           const reviewedCandidate = await env.DB.prepare(
             'SELECT body, source_title, rationale FROM candidates WHERE id = ? AND status = ?'
