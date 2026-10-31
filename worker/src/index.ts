@@ -129,11 +129,11 @@ async function writeDrafts(env: Env, articles: Article[], count: number, memorie
       },
       {
         role: 'user',
-        content: '以下の記事から投稿案を最大' + count + '件作成してください。各案は記事の要点を踏まえた短い所感とし、20〜250文字。article_index, body, rationale, confidence(0〜1)を持つJSON配列のみ返してください。\n' + JSON.stringify(context)
+        content: '次のデータを読み、投稿案を最大' + count + '件作成してください。必ずJSON配列だけを出力し、説明文・Markdownコードフェンス・前置き・後書きは一切付けないでください。形式は [{"article_index":0,"body":"20〜250文字の日本語投稿案","rationale":"根拠","confidence":0.8}] です。article_indexは入力記事のindexを使い、confidenceは0から1の数値にしてください。\n' + JSON.stringify(context)
       }
     ],
-    max_tokens: 1100,
-    temperature: 0.65
+    max_tokens: 1800,
+    temperature: 0.3
   }) as { response?: string };
   if (!result.response) throw new Error('Workers AI returned an empty response.');
   return parseDrafts(result.response);
