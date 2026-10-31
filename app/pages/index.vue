@@ -13,7 +13,10 @@ const memories = ref<Array<{ id: number; memory_type: string; content: string; c
 const loading = ref(false);
 const error = ref('');
 const notice = ref('');
-const headers = computed<Record<string, string>>(() => token.value ? { Authorization: `Bearer ${token.value}` } : {});
+const headers = computed<Record<string, string>>((): Record<string, string> => {
+  if (!token.value) return {};
+  return { Authorization: `Bearer ${token.value}` };
+});
 
 async function loadMemory() {
   try {
