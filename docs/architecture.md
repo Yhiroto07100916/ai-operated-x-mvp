@@ -9,12 +9,12 @@
 ## Research and generation flow
 1. Cron or an administrator calls `POST /api/generate`.
 2. Worker fetches a fixed allowlist of RSS/Atom feeds.
-3. Feed entries are normalized and deduplicated by canonical URL in `research_items`.
+3. Feed entry URLs are normalized by the URL parser and deduplicated by the unique URL constraint in `research_items`.
 4. Up to 15 recent entries are provided to Workers AI as untrusted reference material.
 5. AI returns structured draft candidates with an article index, rationale, and confidence.
 6. Worker validates source index, body length, URL absence, and recent exact duplicates.
 7. Human approval/rejection is stored as a review signal in `agent_memory`; the next generation can use recent signals without treating them as absolute rules.
-7. Candidate is stored as `pending`; a human reviews it in the dashboard.
+8. Candidate is stored as `pending`; a human reviews it in the dashboard.
 
 ## Safety boundaries
 - RSS content is untrusted input. It cannot trigger tools or external actions.
@@ -29,6 +29,7 @@
 - `GET /api/research`
 - `GET /api/activity`
 - `GET /api/memory`
+- `POST /api/research/collect` (RSS-only; does not invoke Workers AI)
 - `POST /api/generate`
 - `POST /api/candidates/:id/approve`
 - `POST /api/candidates/:id/reject`
