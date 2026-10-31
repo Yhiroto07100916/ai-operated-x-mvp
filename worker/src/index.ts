@@ -158,8 +158,8 @@ async function writeDrafts(env: Env, articles: Article[], count: number, memorie
         additionalProperties: false
       }
     }
-  }) as { response?: string };
-  if (!result.response) throw new Error('Workers AI returned an empty response.');
+  }) as { response?: unknown };
+  if (result.response === undefined || result.response === null) throw new Error('Workers AI returned an empty response.');
   return parseDrafts(result.response);
 }
 async function generateCandidates(env: Env, requested = 3) {
