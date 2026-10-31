@@ -68,7 +68,7 @@ onMounted(() => { load(); loadMemory(); });
 
     <section class="stats">
       <div><span>表示中</span><strong>{{ items.length }}</strong></div>
-      <div><span>目標頻度</span><strong>6–10<span class="unit">件/日</span></strong></div>
+      <div><span>生成上限</span><strong>8<span class="unit">件/直近24時間</span></strong></div>
       <div><span>公開連携</span><strong class="off">停止中</strong></div>
     </section>
 
