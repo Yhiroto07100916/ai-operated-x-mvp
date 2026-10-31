@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseDrafts } from '../src/drafts.ts';
+import { isSimilarDraft, parseDrafts } from '../src/drafts.ts';
 
 const draft = {
   article_index: 0,
@@ -49,4 +49,17 @@ test('parses JSON text nested inside a response object', () => {
 
 test('rejects unsupported response types with a useful error', () => {
   assert.throws(() => parseDrafts(42), /response type: number/);
+});
+
+test('detects exact and near-duplicate Japanese drafts', () => {
+  const first = '宇宙望遠鏡がこれまで見えなかった銀河を観測しました。研究の新しい発見です。';
+  const near = '宇宙望遠鏡が今まで見えなかった銀河を観測。研究で新たな発見がありました。';
+  assert.equal(isSimilarDraft(first, first), true);
+  assert.equal(isSimilarDraft(first, near), true);
+});
+
+test('keeps drafts with clearly different angles', () => {
+  const science = '宇宙望遠鏡が遠い銀河を観測し、宇宙の歴史を知る手掛かりになりました。';
+  const education = '学校の授業で生成AIを使う際には、答えだけでなく考え方を確認することが重要です。';
+  assert.equal(isSimilarDraft(science, education), false);
 });
