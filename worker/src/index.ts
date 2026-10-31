@@ -262,6 +262,7 @@ async function generateCandidates(env: Env, requested = 3) {
   ).bind(duplicateSince).all<{ body: string }>();
   const knownBodies = (recentRows.results || []).map((row) => row.body);
   let created = 0;
+  let published = 0;
   for (const draft of drafts.slice(0, count)) {
     if (!Number.isInteger(draft.article_index) || draft.article_index < 0 || draft.article_index >= articles.length) continue;
     const body = String(draft.body || '').trim();
@@ -279,14 +280,12 @@ async function generateCandidates(env: Env, requested = 3) {
     await log(env.DB, 'candidate.generated', candidateId, 'Workers AI created a research-grounded draft.');
     if (mode === 'automatic') {
       const publication = await publishCandidate(env, candidateId);
-      if (publication.published) created++;
-    } else {
-      created++;
+      if (publication.published) published++;
     }
     knownBodies.push(body);
     created++;
   }
-  return { created, mode: 'ai', researchItems: articles.length, xTrends: trends.length };
+  return { created, published, mode: 'ai', researchItems: articles.length, xTrends: trends.length };
 }
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
