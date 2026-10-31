@@ -1,5 +1,5 @@
 import { parseFeed } from './rss.ts';
-import { parseDrafts, type Draft } from './drafts.ts';
+import { isSimilarDraft, parseDrafts, type Draft } from './drafts.ts';
 interface Env {
   DB: D1Database;
   AI?: Ai;
@@ -185,16 +185,18 @@ async function generateCandidates(env: Env, requested = 3) {
     'SELECT memory_type, content FROM agent_memory ORDER BY created_at DESC LIMIT 20'
   ).all<ReviewMemory>();
   const drafts = await writeDrafts(env, articles, count, memoryRows.results || []);
+  const duplicateSince = new Date(Date.now() - 30 * 86400000).toISOString();
+  const recentRows = await env.DB.prepare(
+    'SELECT body FROM candidates WHERE created_at >= ? ORDER BY created_at DESC LIMIT 200'
+  ).bind(duplicateSince).all<{ body: string }>();
+  const knownBodies = (recentRows.results || []).map((row) => row.body);
   let created = 0;
   for (const draft of drafts.slice(0, count)) {
     if (!Number.isInteger(draft.article_index) || draft.article_index < 0 || draft.article_index >= articles.length) continue;
     const body = String(draft.body || '').trim();
     const rationale = String(draft.rationale || '').trim().slice(0, 500);
     if (body.length < 20 || body.length > 250 || !rationale || /https?:\/\//i.test(body)) continue;
-    const duplicate = await env.DB.prepare(
-      'SELECT id FROM candidates WHERE body = ? AND created_at >= ? LIMIT 1'
-    ).bind(body, new Date(Date.now() - 30 * 86400000).toISOString()).first<{ id: string }>();
-    if (duplicate) continue;
+    if (knownBodies.some((existingBody) => isSimilarDraft(body, existingBody))) continue;
     const article = articles[draft.article_index];
     const candidateId = makeId();
     const confidence = Math.max(0, Math.min(1, Number(draft.confidence) || 0.5));
@@ -202,6 +204,7 @@ async function generateCandidates(env: Env, requested = 3) {
       'INSERT INTO candidates (id, kind, status, body, source_url, source_title, rationale, confidence, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
     ).bind(candidateId, 'post', 'pending', body, article.url, article.title, rationale, confidence, new Date().toISOString()).run();
     await log(env.DB, 'candidate.generated', candidateId, 'Workers AI created a research-grounded draft. External publication remains disabled.');
+    knownBodies.push(body);
     created++;
   }
   return { created, mode: 'ai', researchItems: articles.length };
