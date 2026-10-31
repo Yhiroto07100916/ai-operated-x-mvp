@@ -218,6 +218,10 @@ export default {
       } else if (url.pathname === '/api/memory' && request.method === 'GET') {
         const rows = await env.DB.prepare('SELECT * FROM agent_memory ORDER BY created_at DESC LIMIT 100').all();
         response = json({ items: rows.results || [] });
+      } else if (url.pathname === '/api/research/collect' && request.method === 'POST') {
+        const inserted = await collectResearch(env);
+        const total = await env.DB.prepare('SELECT COUNT(*) AS count FROM research_items').first<{ count: number }>();
+        response = json({ inserted, total: Number(total?.count || 0), aiGenerationPerformed: false });
       } else if (url.pathname === '/api/generate' && request.method === 'POST') {
         response = json(await generateCandidates(env, 3), 201);
       } else {
