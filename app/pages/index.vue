@@ -19,11 +19,33 @@ const collectionStats = ref<{ inserted: number; total: number } | null>(null);
 const collectionLoading = ref(false);
 const xTrends = ref<Array<{ trend_name: string; rank: number; tweet_count: number | null; fetched_at: string }>>([]);
 const trendsEnabled = ref(false);
+const publishingMode = ref<'approval' | 'automatic' | 'paused'>('approval');
+const postingConfigured = ref(false);
+const settingsSaving = ref(false);
 const headers = computed<Record<string, string>>((): Record<string, string> => {
   if (!token.value) return {};
   return { Authorization: `Bearer ${token.value}` };
 });
 
+async function loadSettings() {
+  try {
+    const result = await $fetch<{ publishingMode: typeof publishingMode.value; postingConfigured: boolean }>(`${apiBase}/api/settings`, { headers: headers.value });
+    publishingMode.value = result.publishingMode;
+    postingConfigured.value = result.postingConfigured;
+  } catch { error.value = '投稿設定を読み込めませんでした'; }
+}
+async function savePublishingMode() {
+  settingsSaving.value = true; error.value = ''; notice.value = '';
+  try {
+    const result = await $fetch<{ publishingMode: typeof publishingMode.value; postingConfigured: boolean }>(`${apiBase}/api/settings`, {
+      method: 'POST', headers: headers.value, body: { publishingMode: publishingMode.value }
+    });
+    publishingMode.value = result.publishingMode;
+    postingConfigured.value = result.postingConfigured;
+    notice.value = '投稿モードを保存しました';
+  } catch (e) { error.value = e instanceof Error ? e.message : '投稿設定の保存に失敗しました'; }
+  finally { settingsSaving.value = false; }
+}
 async function loadTrends() {
   try {
     const result = await $fetch<{ enabled: boolean; items: typeof xTrends.value }>(`${apiBase}/api/trends`, { headers: headers.value });
@@ -48,8 +70,8 @@ async function load() {
 async function review(item: Candidate, action: 'approve' | 'reject') {
   notice.value = '';
   try {
-    await $fetch(`${apiBase}/api/candidates/${item.id}/${action}`, { method: 'POST', headers: headers.value });
-    notice.value = action === 'approve' ? '承認しました（外部には投稿されません）' : '却下しました';
+    const result = await $fetch<{ status: string; publication?: { published: boolean; reason?: string } }>(`${apiBase}/api/candidates/${item.id}/${action}`, { method: 'POST', headers: headers.value });
+    notice.value = action === 'approve' ? (result.status === 'published' ? '承認してXへ投稿しました' : `承認しました。${result.publication?.reason || '投稿は保留されています'}`) : '却下しました';
     await load(); await loadMemory();
   } catch (e) { error.value = e instanceof Error ? e.message : '更新に失敗しました'; }
 }
@@ -75,17 +97,30 @@ async function generate() {
   } catch (e) { error.value = e instanceof Error ? e.message : '生成に失敗しました'; }
 }
 function formatDate(value: string) { return new Date(value).toLocaleString('ja-JP'); }
-onMounted(() => { load(); loadMemory(); loadTrends(); });
+onMounted(() => { load(); loadMemory(); loadTrends(); loadSettings(); });
 </script>
 
 <template>
   <main class="shell">
     <header class="topbar">
-      <div><p class="eyebrow">AUTONOMOUS AGENT / MVP</p><h1>AI-operated X</h1><p class="sub">AIが考えた投稿候補を確認・承認する管理画面</p></div>
-      <span class="mode">AI DRAFT MODE · PUBLISHING OFF</span>
+      <div><p class="eyebrow">AUTONOMOUS AGENT / MVP</p><h1>AI-operated X</h1><p class="sub">AIが考えた投稿候補とXへの公開を管理</p></div>
+      <span class="mode">X PUBLISHING CONTROL</span>
     </header>
 
-    <section class="notice warning"><strong>安全モード</strong><span>現在は候補生成と承認フローのみ。Xへの投稿・リポストは実行されません。</span></section>
+    <section class="notice warning"><strong>投稿状態</strong><span>{{ publishingMode === 'approval' ? '承認制：承認した候補だけXへ投稿します。' : publishingMode === 'automatic' ? '完全自動：新しい候補を承認なしでXへ投稿します。' : '投稿停止：候補の生成・確認のみ行います。' }}</span><span>{{ postingConfigured ? 'Xユーザー認証トークン設定済み' : 'Xユーザー認証トークン未設定' }}</span></section>
+
+    <section class="trend-panel publishing-settings">
+      <div class="trend-heading"><h2>投稿モード設定</h2><span>初期設定：承認制</span></div>
+      <p class="trend-empty">完全自動を選ぶと、今後生成される候補は確認なしで投稿されます。切り替える前に投稿内容・認証アカウントを確認してください。</p>
+      <div class="publishing-controls">
+        <select v-model="publishingMode">
+          <option value="approval">承認制（承認後に投稿）</option>
+          <option value="automatic" :disabled="!postingConfigured">完全自動（承認不要）</option>
+          <option value="paused">投稿停止</option>
+        </select>
+        <button :disabled="settingsSaving" @click="savePublishingMode">{{ settingsSaving ? '保存中…' : '設定を保存' }}</button>
+      </div>
+    </section>
 
     <section class="toolbar">
       <label class="token">管理トークン（本番環境では必須）<input v-model="token" type="password" placeholder="ローカル開発では空欄で可"></label>
@@ -145,10 +180,10 @@ onMounted(() => { load(); loadMemory(); loadTrends(); });
       <div v-else class="status-label">{{ item.status }}</div>
     </article>
 
-    <footer>AI-operated X · MVP · 外部公開機能は未接続</footer>
+    <footer>AI-operated X · 投稿モードは初期状態で承認制</footer>
   </main>
 </template>
 
 <style>
-:root{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#e7edf5;background:#0b1422}*{box-sizing:border-box}body{margin:0}.shell{max-width:920px;margin:0 auto;padding:42px 22px 70px}.topbar{display:flex;justify-content:space-between;align-items:flex-start;gap:18px;margin-bottom:28px}.eyebrow{font-size:11px;letter-spacing:.16em;color:#8ba7c5;font-weight:700}.topbar h1{font-size:32px;margin:6px 0}.sub,.list-head p{color:#93a4b8;margin:0;font-size:14px}.mode,.kind{font-size:10px;letter-spacing:.08em;border:1px solid #31516e;color:#a9c7e6;border-radius:20px;padding:7px 10px;white-space:nowrap}.notice{padding:13px 15px;border-radius:12px;margin:16px 0;font-size:13px;display:flex;gap:10px;flex-wrap:wrap}.warning{background:#302718;border:1px solid #70552a;color:#f1d5a1}.success{background:#123328;border:1px solid #24694d;color:#b7f0d2}.danger{background:#3b2026;border:1px solid #743b48;color:#ffc4ce}.toolbar{display:flex;justify-content:space-between;align-items:end;gap:18px;margin:24px 0}.token{font-size:12px;color:#9aadc2;display:grid;gap:7px;flex:1;max-width:430px}input,select{background:#111f31;border:1px solid #2a4058;color:#e7edf5;border-radius:8px;padding:10px 12px;font:inherit}.actions,.candidate-actions{display:flex;gap:9px}button{background:#d5a64e;color:#17130c;border:0;border-radius:8px;padding:10px 15px;font-weight:700;cursor:pointer}.secondary,.reject{background:#20344a;color:#d7e4f1}.reject{color:#ffc4ce}.trend-panel{background:#101d2c;border:1px solid #263c54;border-radius:12px;padding:16px;margin:20px 0}.trend-heading{display:flex;justify-content:space-between;align-items:baseline;gap:10px}.trend-heading h2{font-size:15px;margin:0}.trend-heading span{font-size:11px;color:#d8b36f}.trend-empty{font-size:12px;line-height:1.7;color:#93a4b8;margin:10px 0 0}.trend-list{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}.trend-list span{background:#17283b;border:1px solid #2b435d;border-radius:8px;padding:7px 9px;font-size:12px}.trend-list b{color:#d8b36f}.trend-list small{color:#8298af}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:24px 0}.stats>div{background:#111f31;border:1px solid #223850;border-radius:12px;padding:16px}.stats span{display:block;color:#8fa4ba;font-size:12px}.stats strong{display:block;font-size:24px;margin-top:7px}.stats .unit{display:inline;font-size:12px;margin-left:4px}.stats .off{font-size:17px;color:#f1c47e}.memory-panel{background:#101d2c;border:1px solid #263c54;border-radius:12px;padding:16px;margin:22px 0}.memory-heading{display:flex;justify-content:space-between;gap:10px;align-items:baseline;flex-wrap:wrap}.memory-heading h2{font-size:15px;margin:0}.memory-heading span{font-size:11px;color:#8298af}.memory-item{border-top:1px solid #263c54;margin-top:12px;padding-top:10px}.memory-item strong{font-size:11px;color:#d8b36f}.memory-item p{font-size:12px;line-height:1.6;color:#a7b8ca;margin:5px 0 0}.list-head{display:flex;justify-content:space-between;align-items:center;margin:34px 0 14px}.list-head h2{margin:0 0 5px;font-size:20px}.list-head select{min-width:140px}.candidate{background:#111f31;border:1px solid #263c54;border-radius:14px;padding:19px;margin:12px 0}.candidate-meta{display:flex;align-items:center;gap:12px;color:#8fa4ba;font-size:11px;flex-wrap:wrap}.body{font-size:16px;line-height:1.8;white-space:pre-wrap;margin:17px 0}.reason{border-left:2px solid #486581;padding:4px 0 4px 12px;color:#a7b8ca;font-size:12px}.reason p{margin:5px 0}.source-link{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;margin-top:12px;font-size:12px;color:#8fa4ba}.source-link a{color:#a9c7e6;overflow-wrap:anywhere}.candidate-actions{justify-content:flex-end;margin-top:17px}.confidence{margin-left:auto} .feed-panel{background:#101d2c;border:1px solid #263c54;border-radius:12px;padding:16px;margin:20px 0}.feed-heading{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap}.feed-heading h2{font-size:15px;margin:0}.feed-heading>span{font-size:11px;color:#8298af}.feed-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:13px}.feed-item{min-width:0;background:#111f31;border:1px solid #263c54;border-radius:9px;padding:11px}.feed-main{display:flex;justify-content:space-between;align-items:center;gap:8px}.feed-main strong{font-size:12px;overflow-wrap:anywhere}.feed-status{font-size:10px;border-radius:20px;padding:3px 8px;white-space:nowrap}.feed-status.ok{background:#153b30;color:#a9e7c9}.feed-status.error{background:#44252c;color:#ffc0ca}.feed-detail,.feed-error{display:block;font-size:11px;margin-top:7px;color:#8fa4ba}.feed-error{color:#ffc0ca}button:disabled{opacity:.55;cursor:wait}.empty{border:1px dashed #344b63;border-radius:12px;padding:30px;text-align:center;color:#8fa4ba;font-size:13px}footer{text-align:center;color:#63788f;font-size:11px;margin-top:45px}@media(max-width:640px){.shell{padding:28px 15px 50px}.topbar{display:block}.mode{display:inline-block;margin-top:14px}.toolbar{display:block}.token{max-width:none}.actions{margin-top:12px}.actions button{flex:1}.stats{gap:7px}.stats>div{padding:11px}.stats strong{font-size:20px}.list-head{align-items:flex-end}.candidate{padding:15px}.body{font-size:15px}.feed-list{grid-template-columns:1fr}}
+:root{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#e7edf5;background:#0b1422}*{box-sizing:border-box}body{margin:0}.shell{max-width:920px;margin:0 auto;padding:42px 22px 70px}.topbar{display:flex;justify-content:space-between;align-items:flex-start;gap:18px;margin-bottom:28px}.eyebrow{font-size:11px;letter-spacing:.16em;color:#8ba7c5;font-weight:700}.topbar h1{font-size:32px;margin:6px 0}.sub,.list-head p{color:#93a4b8;margin:0;font-size:14px}.mode,.kind{font-size:10px;letter-spacing:.08em;border:1px solid #31516e;color:#a9c7e6;border-radius:20px;padding:7px 10px;white-space:nowrap}.notice{padding:13px 15px;border-radius:12px;margin:16px 0;font-size:13px;display:flex;gap:10px;flex-wrap:wrap}.warning{background:#302718;border:1px solid #70552a;color:#f1d5a1}.success{background:#123328;border:1px solid #24694d;color:#b7f0d2}.danger{background:#3b2026;border:1px solid #743b48;color:#ffc4ce}.toolbar{display:flex;justify-content:space-between;align-items:end;gap:18px;margin:24px 0}.token{font-size:12px;color:#9aadc2;display:grid;gap:7px;flex:1;max-width:430px}input,select{background:#111f31;border:1px solid #2a4058;color:#e7edf5;border-radius:8px;padding:10px 12px;font:inherit}.actions,.candidate-actions{display:flex;gap:9px}button{background:#d5a64e;color:#17130c;border:0;border-radius:8px;padding:10px 15px;font-weight:700;cursor:pointer}.secondary,.reject{background:#20344a;color:#d7e4f1}.reject{color:#ffc4ce}.publishing-controls{display:flex;gap:10px;margin-top:12px;flex-wrap:wrap}.publishing-controls select{flex:1;min-width:220px}.trend-panel{background:#101d2c;border:1px solid #263c54;border-radius:12px;padding:16px;margin:20px 0}.trend-heading{display:flex;justify-content:space-between;align-items:baseline;gap:10px}.trend-heading h2{font-size:15px;margin:0}.trend-heading span{font-size:11px;color:#d8b36f}.trend-empty{font-size:12px;line-height:1.7;color:#93a4b8;margin:10px 0 0}.trend-list{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}.trend-list span{background:#17283b;border:1px solid #2b435d;border-radius:8px;padding:7px 9px;font-size:12px}.trend-list b{color:#d8b36f}.trend-list small{color:#8298af}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:24px 0}.stats>div{background:#111f31;border:1px solid #223850;border-radius:12px;padding:16px}.stats span{display:block;color:#8fa4ba;font-size:12px}.stats strong{display:block;font-size:24px;margin-top:7px}.stats .unit{display:inline;font-size:12px;margin-left:4px}.stats .off{font-size:17px;color:#f1c47e}.memory-panel{background:#101d2c;border:1px solid #263c54;border-radius:12px;padding:16px;margin:22px 0}.memory-heading{display:flex;justify-content:space-between;gap:10px;align-items:baseline;flex-wrap:wrap}.memory-heading h2{font-size:15px;margin:0}.memory-heading span{font-size:11px;color:#8298af}.memory-item{border-top:1px solid #263c54;margin-top:12px;padding-top:10px}.memory-item strong{font-size:11px;color:#d8b36f}.memory-item p{font-size:12px;line-height:1.6;color:#a7b8ca;margin:5px 0 0}.list-head{display:flex;justify-content:space-between;align-items:center;margin:34px 0 14px}.list-head h2{margin:0 0 5px;font-size:20px}.list-head select{min-width:140px}.candidate{background:#111f31;border:1px solid #263c54;border-radius:14px;padding:19px;margin:12px 0}.candidate-meta{display:flex;align-items:center;gap:12px;color:#8fa4ba;font-size:11px;flex-wrap:wrap}.body{font-size:16px;line-height:1.8;white-space:pre-wrap;margin:17px 0}.reason{border-left:2px solid #486581;padding:4px 0 4px 12px;color:#a7b8ca;font-size:12px}.reason p{margin:5px 0}.source-link{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;margin-top:12px;font-size:12px;color:#8fa4ba}.source-link a{color:#a9c7e6;overflow-wrap:anywhere}.candidate-actions{justify-content:flex-end;margin-top:17px}.confidence{margin-left:auto} .feed-panel{background:#101d2c;border:1px solid #263c54;border-radius:12px;padding:16px;margin:20px 0}.feed-heading{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap}.feed-heading h2{font-size:15px;margin:0}.feed-heading>span{font-size:11px;color:#8298af}.feed-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:13px}.feed-item{min-width:0;background:#111f31;border:1px solid #263c54;border-radius:9px;padding:11px}.feed-main{display:flex;justify-content:space-between;align-items:center;gap:8px}.feed-main strong{font-size:12px;overflow-wrap:anywhere}.feed-status{font-size:10px;border-radius:20px;padding:3px 8px;white-space:nowrap}.feed-status.ok{background:#153b30;color:#a9e7c9}.feed-status.error{background:#44252c;color:#ffc0ca}.feed-detail,.feed-error{display:block;font-size:11px;margin-top:7px;color:#8fa4ba}.feed-error{color:#ffc0ca}button:disabled{opacity:.55;cursor:wait}.empty{border:1px dashed #344b63;border-radius:12px;padding:30px;text-align:center;color:#8fa4ba;font-size:13px}footer{text-align:center;color:#63788f;font-size:11px;margin-top:45px}@media(max-width:640px){.shell{padding:28px 15px 50px}.topbar{display:block}.mode{display:inline-block;margin-top:14px}.toolbar{display:block}.token{max-width:none}.actions{margin-top:12px}.actions button{flex:1}.stats{gap:7px}.stats>div{padding:11px}.stats strong{font-size:20px}.list-head{align-items:flex-end}.candidate{padding:15px}.body{font-size:15px}.feed-list{grid-template-columns:1fr}}
 </style>
