@@ -4,6 +4,7 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-10-31",
   "workers_dev": true,
+  "preview_urls": false,
   "vars": {
     "APP_ENV": "production",
     "CANDIDATE_TARGET_PER_DAY": "8",
