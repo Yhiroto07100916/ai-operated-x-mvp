@@ -177,7 +177,11 @@ async function generateCandidates(env: Env, requested = 3) {
   if (!env.AI) return { created: 0, mode: 'unconfigured', message: 'Workers AI binding is not configured.' };
   await collectResearch(env);
   const rows = await env.DB.prepare(
-    'SELECT id, source_name, title, url, content, published_at FROM research_items ORDER BY fetched_at DESC LIMIT 15'
+    'SELECT id, source_name, title, url, content, published_at FROM (' +
+    'SELECT id, source_name, title, url, content, published_at, fetched_at, ' +
+    'ROW_NUMBER() OVER (PARTITION BY source_name ORDER BY fetched_at DESC) AS source_rank ' +
+    'FROM research_items' +
+    ') WHERE source_rank <= 3 ORDER BY fetched_at DESC LIMIT 15'
   ).all<Article>();
   const articles = rows.results || [];
   if (!articles.length) return { created: 0, mode: 'ai', message: 'No research items are available yet.' };
