@@ -40,6 +40,15 @@ async function review(item: Candidate, action: 'approve' | 'reject') {
     await load(); await loadMemory();
   } catch (e) { error.value = e instanceof Error ? e.message : '更新に失敗しました'; }
 }
+async function collectResearch() {
+  notice.value = ''; error.value = '';
+  try {
+    const result = await $fetch<{ inserted: number; total: number; aiGenerationPerformed: false }>(`${apiBase}/api/research/collect`, {
+      method: 'POST', headers: headers.value
+    });
+    notice.value = `RSS収集完了：新規 ${result.inserted}件／保存済み合計 ${result.total}件（AI生成なし）`;
+  } catch (e) { error.value = e instanceof Error ? e.message : 'RSS収集に失敗しました'; }
+}
 async function generate() {
   notice.value = ''; error.value = '';
   try {
@@ -63,7 +72,7 @@ onMounted(() => { load(); loadMemory(); });
 
     <section class="toolbar">
       <label class="token">管理トークン（本番環境では必須）<input v-model="token" type="password" placeholder="ローカル開発では空欄で可"></label>
-      <div class="actions"><button class="secondary" @click="load">再読み込み</button><button @click="generate">候補を生成</button></div>
+      <div class="actions"><button class="secondary" @click="load">再読み込み</button><button class="secondary" @click="collectResearch">RSS収集（AIなし）</button><button @click="generate">AI候補を生成</button></div>
     </section>
 
     <section class="stats">
