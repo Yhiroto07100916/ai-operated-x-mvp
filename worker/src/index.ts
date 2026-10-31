@@ -180,9 +180,9 @@ async function generateCandidates(env: Env, requested = 3) {
   const rows = await env.DB.prepare(
     'SELECT id, source_name, title, url, content, published_at FROM (' +
     'SELECT id, source_name, title, url, content, published_at, fetched_at, ' +
-    'ROW_NUMBER() OVER (PARTITION BY source_name ORDER BY COALESCE(published_at, fetched_at) DESC) AS source_rank ' +
-    'FROM research_items WHERE published_at IS NULL OR published_at >= ?' +
-    ') WHERE source_rank <= 3 ORDER BY COALESCE(published_at, fetched_at) DESC LIMIT 15'
+    'ROW_NUMBER() OVER (PARTITION BY source_name ORDER BY COALESCE(julianday(published_at), julianday(fetched_at)) DESC) AS source_rank ' +
+    'FROM research_items WHERE COALESCE(julianday(published_at), julianday(fetched_at)) >= julianday(?)' +
+    ') WHERE source_rank <= 3 ORDER BY COALESCE(julianday(published_at), julianday(fetched_at)) DESC LIMIT 15'
   ).bind(researchSince).all<Article>();
   const articles = rows.results || [];
   if (!articles.length) return { created: 0, mode: 'ai', message: 'No research items are available yet.' };
