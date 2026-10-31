@@ -32,7 +32,7 @@ const json = (data: unknown, status = 200) => new Response(JSON.stringify(data),
 function cors(request: Request, response: Response, env: Env): Response {
   const origin = request.headers.get('Origin');
   const headers = new Headers(response.headers);
-  if (origin && (origin === env.APP_ORIGIN || /^https?:\/\/(localhost:\d+|127\.0\.0\.1:\d+)$/.test(origin))) {
+  if (origin && (origin === env.APP_ORIGIN || (env.APP_ENV !== 'production' && /^https?:\/\/(localhost:\d+|127\.0\.0\.1:\d+)$/.test(origin)))) {
     headers.set('access-control-allow-origin', origin);
     headers.set('vary', 'Origin');
   }
@@ -231,27 +231,28 @@ export default {
         const match = url.pathname.match(/^\/api\/candidates\/([\w-]+)\/(approve|reject)$/);
         if (match && request.method === 'POST') {
           const [, candidateId, action] = match;
-          const body = await request.json().catch(() => ({})) as { note?: string };
+          const body = await request.json().catch(() => ({})) as { note?: unknown };
+          const note = typeof body.note === 'string' ? body.note.trim().slice(0, 500) : '';
           const status = action === 'approve' ? 'approved' : 'rejected';
           const reviewedCandidate = await env.DB.prepare(
             'SELECT body, source_title, rationale FROM candidates WHERE id = ? AND status = ?'
           ).bind(candidateId, 'pending').first<{ body: string; source_title: string | null; rationale: string }>();
           const result = await env.DB.prepare(
             "UPDATE candidates SET status = ?, reviewed_at = ?, reviewer_note = ? WHERE id = ? AND status = 'pending'"
-          ).bind(status, new Date().toISOString(), body.note || null, candidateId).run();
+          ).bind(status, new Date().toISOString(), note || null, candidateId).run();
           if (!result.meta.changes) response = json({ error: 'Candidate not found or already reviewed.' }, 409);
           else {
             if (reviewedCandidate) {
               const memoryContent = (action === 'approve' ? '承認された投稿テーマ: ' : '却下された投稿テーマ: ') +
                 (reviewedCandidate.source_title || reviewedCandidate.body) +
                 '。投稿案: ' + reviewedCandidate.body +
-                (body.note ? '。レビューコメント: ' + body.note : '');
+                (note ? '。レビューコメント: ' + note : '');
               await env.DB.prepare(
                 'INSERT INTO agent_memory (memory_type, content, confidence, source, created_at) VALUES (?, ?, ?, ?, ?)'
               ).bind(action === 'approve' ? 'review_approved' : 'review_rejected', memoryContent.slice(0, 1200),
                 action === 'approve' ? 0.7 : 0.65, candidateId, new Date().toISOString()).run();
             }
-            await log(env.DB, 'candidate.' + action, candidateId, body.note || 'No reviewer note.');
+            await log(env.DB, 'candidate.' + action, candidateId, note || 'No reviewer note.');
             response = json({ ok: true, status });
           }
         } else response = json({ error: 'Not found' }, 404);
