@@ -77,3 +77,24 @@ export function parseDrafts(raw: unknown): Draft[] {
     typeof (item as Record<string, unknown>).confidence === 'number'
   );
 }
+
+function characterBigrams(value: string): Set<string> {
+  const normalized = value.normalize('NFKC').toLowerCase().replace(/[\\s、。,.!！?？「」『』（）()【】［］:：;；・…〜～]/g, '');
+  const chars = Array.from(normalized);
+  if (chars.length < 2) return new Set(chars);
+  const grams = new Set<string>();
+  for (let index = 0; index < chars.length - 1; index++) {
+    grams.add(chars[index] + chars[index + 1]);
+  }
+  return grams;
+}
+
+export function isSimilarDraft(left: string, right: string, threshold = 0.72): boolean {
+  const a = characterBigrams(left);
+  const b = characterBigrams(right);
+  if (!a.size || !b.size) return false;
+  let intersection = 0;
+  for (const gram of a) if (b.has(gram)) intersection++;
+  const union = a.size + b.size - intersection;
+  return union > 0 && intersection / union >= threshold;
+}
