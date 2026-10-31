@@ -1,0 +1,22 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "ai-operated-x-worker",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-31",
+  "workers_dev": true,
+  "vars": {
+    "APP_ENV": "development",
+    "CANDIDATE_TARGET_PER_DAY": "8"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "ai-operated-x-db",
+      "database_id": "REPLACE_WITH_D1_DATABASE_ID",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "triggers": {
+    "crons": ["0 1,9,17 * * *"]
+  }
+}
