@@ -258,6 +258,12 @@ export default {
         } else response = json({ error: 'Not found' }, 404);
       }
     } catch (error) {
+      console.error('Worker request failed', {
+        path: url.pathname,
+        method: request.method,
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
+      });
       response = json({ error: 'Internal error', detail: env.APP_ENV === 'production' ? undefined : (error instanceof Error ? error.message : 'Unknown error') }, 500);
     }
     return cors(request, response, env);
