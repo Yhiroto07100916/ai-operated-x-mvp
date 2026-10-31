@@ -91,6 +91,27 @@ npx wrangler secret put APP_ORIGIN
 
 管理画面のホスティング先とデプロイ設定は、このリポジトリにはまだ含まれていません。ホスティング先を決定し、Accessで保護したうえで、実際のOriginを `APP_ORIGIN` に設定してください。管理画面の公開ビルドに `ADMIN_TOKEN` を含めてはいけません。
 
+## 管理画面をCloudflare Pagesへデプロイする場合
+
+この管理画面はブラウザ側でAPIを呼び出すため、静的サイトとして生成できます。
+
+初回のみPagesプロジェクトを作成します。
+
+```bash
+npx wrangler pages project create ai-operated-x-admin --production-branch main
+```
+
+以降のデプロイ:
+
+```bash
+cd app
+npm install
+NUXT_PUBLIC_API_BASE=https://ai-operated-x-worker.seiryofes-2027.workers.dev npm run generate
+npx wrangler pages deploy .output/public --project-name ai-operated-x-admin --branch main
+```
+
+初期URLは `https://ai-operated-x-admin.pages.dev` です。Cloudflare Accessで管理者だけに制限し、Workerの `APP_ORIGIN` をこのOriginに設定してください。カスタムドメインを割り当てる場合は、そのOriginに合わせて `APP_ORIGIN` も更新します。Pagesのプロジェクト作成とデプロイには、Cloudflareへログイン済みのWrangler CLIが必要です。
+
 ## 本番化前に必要な作業
 1. Cloudflare Access等による管理画面/APIの認証設定
 2. AIモデル・情報ソースの選定と利用条件確認
