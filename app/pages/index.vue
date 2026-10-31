@@ -21,6 +21,8 @@ const xTrends = ref<Array<{ trend_name: string; rank: number; tweet_count: numbe
 const trendsEnabled = ref(false);
 const publishingMode = ref<'approval' | 'automatic' | 'paused'>('approval');
 const postingConfigured = ref(false);
+const xAccount = ref<{ connected: boolean; username?: string; expiresAt?: string }>({ connected: false });
+const xAccountLoading = ref(false);
 const settingsSaving = ref(false);
 const headers = computed<Record<string, string>>((): Record<string, string> => {
   if (!token.value) return {};
@@ -29,10 +31,28 @@ const headers = computed<Record<string, string>>((): Record<string, string> => {
 
 async function loadSettings() {
   try {
-    const result = await $fetch<{ publishingMode: typeof publishingMode.value; postingConfigured: boolean }>(`${apiBase}/api/settings`, { headers: headers.value });
+    const result = await $fetch<{ publishingMode: typeof publishingMode.value; postingConfigured: boolean; xAccount?: typeof xAccount.value }>(`${apiBase}/api/settings`, { headers: headers.value });
     publishingMode.value = result.publishingMode;
     postingConfigured.value = result.postingConfigured;
+    if (result.xAccount) xAccount.value = result.xAccount;
   } catch { error.value = '投稿設定を読み込めませんでした'; }
+}
+async function connectX() {
+  xAccountLoading.value = true; error.value = ''; notice.value = '';
+  try {
+    const result = await $fetch<{ authorizeUrl: string }>(apiBase + '/api/auth/x/start', { method: 'POST', headers: headers.value });
+    window.location.assign(result.authorizeUrl);
+  } catch (e) { error.value = e instanceof Error ? e.message : 'X連携を開始できませんでした'; xAccountLoading.value = false; }
+}
+async function disconnectX() {
+  if (!confirm('Xアカウントとの連携を解除しますか？投稿モードは承認制に戻ります。')) return;
+  xAccountLoading.value = true; error.value = '';
+  try {
+    await $fetch(apiBase + '/api/auth/x/disconnect', { method: 'POST', headers: headers.value });
+    xAccount.value = { connected: false }; postingConfigured.value = false; publishingMode.value = 'approval';
+    notice.value = 'Xアカウントとの連携を解除しました';
+  } catch (e) { error.value = e instanceof Error ? e.message : '連携解除に失敗しました'; }
+  finally { xAccountLoading.value = false; }
 }
 async function savePublishingMode() {
   settingsSaving.value = true; error.value = ''; notice.value = '';
@@ -97,7 +117,13 @@ async function generate() {
   } catch (e) { error.value = e instanceof Error ? e.message : '生成に失敗しました'; }
 }
 function formatDate(value: string) { return new Date(value).toLocaleString('ja-JP'); }
-onMounted(() => { load(); loadMemory(); loadTrends(); loadSettings(); });
+onMounted(() => {
+  const oauthResult = new URLSearchParams(window.location.search).get('x_oauth');
+  if (oauthResult === 'connected') notice.value = 'Xアカウントとの連携が完了しました';
+  if (oauthResult === 'failed') error.value = 'Xアカウント連携に失敗しました。設定と権限を確認してください';
+  if (oauthResult) window.history.replaceState({}, '', window.location.pathname);
+  load(); loadMemory(); loadTrends(); loadSettings();
+});
 </script>
 
 <template>
@@ -108,6 +134,15 @@ onMounted(() => { load(); loadMemory(); loadTrends(); loadSettings(); });
     </header>
 
     <section class="notice warning"><strong>投稿状態</strong><span>{{ publishingMode === 'approval' ? '承認制：承認した候補だけXへ投稿します。' : publishingMode === 'automatic' ? '完全自動：新しい候補を承認なしでXへ投稿します。' : '投稿停止：候補の生成・確認のみ行います。' }}</span><span>{{ postingConfigured ? 'Xユーザー認証トークン設定済み' : 'Xユーザー認証トークン未設定' }}</span></section>
+
+    <section class="trend-panel publishing-settings">
+      <div class="trend-heading"><h2>Xアカウント連携</h2><span>{{ xAccount.connected ? '接続済み' : '未接続' }}</span></div>
+      <p class="trend-empty">{{ xAccount.connected ? '@' + (xAccount.username || '連携済み') + ' と連携中。トークンは暗号化してWorker側に保存しています。' : 'Xの認証画面で投稿権限を許可すると連携できます。投稿は承認制のまま開始します。' }}</p>
+      <div class="publishing-controls">
+        <button :disabled="xAccountLoading || !token" @click="connectX">{{ xAccountLoading ? '処理中…' : 'Xアカウントを連携' }}</button>
+        <button v-if="xAccount.connected" class="secondary" :disabled="xAccountLoading" @click="disconnectX">連携解除</button>
+      </div>
+    </section>
 
     <section class="trend-panel publishing-settings">
       <div class="trend-heading"><h2>投稿モード設定</h2><span>初期設定：承認制</span></div>
