@@ -10,6 +10,7 @@ interface Env {
   ADMIN_TOKEN?: string;
   APP_ORIGIN?: string;
   X_BEARER_TOKEN?: string;
+  X_USER_ACCESS_TOKEN?: string;
 }
 type Candidate = {
   id: string; kind: 'post' | 'repost'; status: string; body: string;
@@ -171,6 +172,54 @@ async function writeDrafts(env: Env, articles: Article[], count: number, memorie
   if (result.response === undefined || result.response === null) throw new Error('Workers AI returned an empty response.');
   return parseDrafts(result.response);
 }
+
+type PublishingMode = 'approval' | 'automatic' | 'paused';
+async function getPublishingMode(db: D1Database): Promise<PublishingMode> {
+  const row = await db.prepare("SELECT value FROM app_settings WHERE key = 'publishing_mode'").first<{ value: string }>();
+  return row?.value === 'automatic' || row?.value === 'paused' ? row.value : 'approval';
+}
+async function publishCandidate(env: Env, candidateId: string): Promise<{ published: boolean; reason?: string; postId?: string }> {
+  if (!env.X_USER_ACCESS_TOKEN) return { published: false, reason: 'X_USER_ACCESS_TOKEN is not configured.' };
+  const candidate = await env.DB.prepare(
+    "SELECT id, body, status FROM candidates WHERE id = ? AND status IN ('approved', 'pending')"
+  ).bind(candidateId).first<{ id: string; body: string; status: string }>();
+  if (!candidate) return { published: false, reason: 'Candidate is not eligible for publication.' };
+  const claim = await env.DB.prepare(
+    "INSERT OR IGNORE INTO publication_jobs (candidate_id, state, created_at, updated_at) VALUES (?, 'processing', ?, ?)"
+  ).bind(candidateId, new Date().toISOString(), new Date().toISOString()).run();
+  if (!claim.meta.changes) return { published: false, reason: 'Publication was already attempted; automatic retry is blocked.' };
+  try {
+    const response = await fetch('https://api.x.com/2/tweets', {
+      method: 'POST',
+      headers: { authorization: 'Bearer ' + env.X_USER_ACCESS_TOKEN, 'content-type': 'application/json' },
+      body: JSON.stringify({ text: candidate.body }),
+      signal: AbortSignal.timeout(15000)
+    });
+    const payload = await response.json().catch(() => ({})) as { data?: { id?: string }; errors?: unknown[]; detail?: string; title?: string };
+    if (!response.ok || !payload.data?.id) {
+      const reason = ('X API request failed (' + response.status + '): ' + (payload.detail || payload.title || 'No post ID returned.')).slice(0, 500);
+      await env.DB.prepare("UPDATE publication_jobs SET state = ?, error = ?, updated_at = ? WHERE candidate_id = ?")
+        .bind(response.status >= 500 ? 'unknown' : 'failed', reason, new Date().toISOString(), candidateId).run();
+      await env.DB.prepare("UPDATE candidates SET status = 'failed' WHERE id = ?").bind(candidateId).run();
+      await log(env.DB, 'candidate.publish_failed', candidateId, reason);
+      return { published: false, reason };
+    }
+    const postId = payload.data.id;
+    await env.DB.prepare("UPDATE publication_jobs SET state = 'published', x_post_id = ?, updated_at = ? WHERE candidate_id = ?")
+      .bind(postId, new Date().toISOString(), candidateId).run();
+    await env.DB.prepare("UPDATE candidates SET status = 'published', published_at = ? WHERE id = ?")
+      .bind(new Date().toISOString(), candidateId).run();
+    await log(env.DB, 'candidate.published', candidateId, 'Published to X: ' + postId);
+    return { published: true, postId };
+  } catch (error) {
+    const reason = error instanceof Error ? error.message.slice(0, 300) : 'Unknown network error';
+    await env.DB.prepare("UPDATE publication_jobs SET state = 'unknown', error = ?, updated_at = ? WHERE candidate_id = ?")
+      .bind(reason, new Date().toISOString(), candidateId).run();
+    await log(env.DB, 'candidate.publish_unknown', candidateId, 'Publication outcome is unknown; retry blocked to prevent duplicates.');
+    return { published: false, reason: 'Publication outcome is unknown. Retry is blocked to prevent duplicate posts.' };
+  }
+}
+
 async function generateCandidates(env: Env, requested = 3) {
   const since = new Date(Date.now() - 86400000).toISOString();
   const existing = await env.DB.prepare('SELECT COUNT(*) AS count FROM candidates WHERE created_at >= ?')
@@ -222,10 +271,18 @@ async function generateCandidates(env: Env, requested = 3) {
     const article = articles[draft.article_index];
     const candidateId = makeId();
     const confidence = Math.max(0, Math.min(1, Number(draft.confidence) || 0.5));
+    const mode = await getPublishingMode(env.DB);
+    const initialStatus = mode === 'automatic' ? 'approved' : 'pending';
     await env.DB.prepare(
-      'INSERT INTO candidates (id, kind, status, body, source_url, source_title, rationale, confidence, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
-    ).bind(candidateId, 'post', 'pending', body, article.url, article.title, rationale, confidence, new Date().toISOString()).run();
-    await log(env.DB, 'candidate.generated', candidateId, 'Workers AI created a research-grounded draft. External publication remains disabled.');
+      'INSERT INTO candidates (id, kind, status, body, source_url, source_title, rationale, confidence, created_at, reviewed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    ).bind(candidateId, 'post', initialStatus, body, article.url, article.title, rationale, confidence, new Date().toISOString(), mode === 'automatic' ? new Date().toISOString() : null).run();
+    await log(env.DB, 'candidate.generated', candidateId, 'Workers AI created a research-grounded draft.');
+    if (mode === 'automatic') {
+      const publication = await publishCandidate(env, candidateId);
+      if (publication.published) created++;
+    } else {
+      created++;
+    }
     knownBodies.push(body);
     created++;
   }
@@ -237,13 +294,29 @@ export default {
     const url = new URL(request.url);
     if (url.pathname === '/api/health' && request.method === 'GET') {
       return cors(request, json({
-        ok: true, mode: env.AI ? 'ai' : 'unconfigured', publishingEnabled: false, time: new Date().toISOString()
+        ok: true, mode: env.AI ? 'ai' : 'unconfigured', publishingEnabled: Boolean(env.X_USER_ACCESS_TOKEN), time: new Date().toISOString()
       }), env);
     }
     if (!authorized(request, env)) return cors(request, json({ error: 'Unauthorized' }, 401), env);
     let response: Response;
     try {
-      if (url.pathname === '/api/candidates' && request.method === 'GET') {
+      if (url.pathname === '/api/settings' && request.method === 'GET') {
+        const mode = await getPublishingMode(env.DB);
+        response = json({ publishingMode: mode, postingConfigured: Boolean(env.X_USER_ACCESS_TOKEN) });
+      } else if (url.pathname === '/api/settings' && request.method === 'POST') {
+        const body = await request.json().catch(() => ({})) as { publishingMode?: unknown };
+        const mode = body.publishingMode;
+        if (mode !== 'approval' && mode !== 'automatic' && mode !== 'paused') {
+          response = json({ error: 'Invalid publishing mode.' }, 400);
+        } else if (mode === 'automatic' && !env.X_USER_ACCESS_TOKEN) {
+          response = json({ error: 'X user access token is not configured. Automatic mode cannot be enabled.' }, 409);
+        } else {
+          await env.DB.prepare("INSERT INTO app_settings (key, value, updated_at) VALUES ('publishing_mode', ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at")
+            .bind(mode, new Date().toISOString()).run();
+          await log(env.DB, 'settings.publishing_mode', null, 'Publishing mode changed to ' + mode);
+          response = json({ ok: true, publishingMode: mode, postingConfigured: Boolean(env.X_USER_ACCESS_TOKEN) });
+        }
+      } else if (url.pathname === '/api/candidates' && request.method === 'GET') {
         const status = url.searchParams.get('status');
         const limit = Math.max(1, Math.min(100, Number(url.searchParams.get('limit') || 50)));
         const query = status
@@ -304,7 +377,12 @@ export default {
                 action === 'approve' ? 0.7 : 0.65, candidateId, new Date().toISOString()).run();
             }
             await log(env.DB, 'candidate.' + action, candidateId, note || 'No reviewer note.');
-            response = json({ ok: true, status });
+            if (action === 'approve') {
+              const publication = await publishCandidate(env, candidateId);
+              response = json({ ok: true, status: publication.published ? 'published' : 'approved', publication });
+            } else {
+              response = json({ ok: true, status });
+            }
           }
         } else response = json({ error: 'Not found' }, 404);
       }
