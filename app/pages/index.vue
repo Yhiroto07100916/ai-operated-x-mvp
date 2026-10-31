@@ -1,4 +1,5 @@
 <script setup lang="ts">
+type FeedResult = { source: string; status: 'ok' | 'error'; entriesFound: number; error?: string };
 type Candidate = {
   id: string; kind: 'post' | 'repost'; status: string; body: string;
   rationale: string; confidence: number; created_at: string;
@@ -13,6 +14,9 @@ const memories = ref<Array<{ id: number; memory_type: string; content: string; c
 const loading = ref(false);
 const error = ref('');
 const notice = ref('');
+const feedResults = ref<FeedResult[]>([]);
+const collectionStats = ref<{ inserted: number; total: number } | null>(null);
+const collectionLoading = ref(false);
 const headers = computed<Record<string, string>>((): Record<string, string> => {
   if (!token.value) return {};
   return { Authorization: `Bearer ${token.value}` };
@@ -41,13 +45,17 @@ async function review(item: Candidate, action: 'approve' | 'reject') {
   } catch (e) { error.value = e instanceof Error ? e.message : '更新に失敗しました'; }
 }
 async function collectResearch() {
-  notice.value = ''; error.value = '';
+  notice.value = ''; error.value = ''; feedResults.value = []; collectionStats.value = null; collectionLoading.value = true;
   try {
-    const result = await $fetch<{ inserted: number; total: number; aiGenerationPerformed: false }>(`${apiBase}/api/research/collect`, {
+    const result = await $fetch<{ inserted: number; total: number; feeds: FeedResult[]; aiGenerationPerformed: false }>(`${apiBase}/api/research/collect`, {
       method: 'POST', headers: headers.value
     });
-    notice.value = `RSS収集完了：新規 ${result.inserted}件／保存済み合計 ${result.total}件（AI生成なし）`;
+    feedResults.value = result.feeds || [];
+    collectionStats.value = { inserted: result.inserted, total: result.total };
+    const failed = feedResults.value.filter((feed) => feed.status === 'error').length;
+    notice.value = `RSS収集完了：新規 ${result.inserted}件／保存済み合計 ${result.total}件（成功 ${feedResults.value.length - failed}/${feedResults.value.length} 情報源・AI生成なし）`;
   } catch (e) { error.value = e instanceof Error ? e.message : 'RSS収集に失敗しました'; }
+  finally { collectionLoading.value = false; }
 }
 async function generate() {
   notice.value = ''; error.value = '';
@@ -72,7 +80,7 @@ onMounted(() => { load(); loadMemory(); });
 
     <section class="toolbar">
       <label class="token">管理トークン（本番環境では必須）<input v-model="token" type="password" placeholder="ローカル開発では空欄で可"></label>
-      <div class="actions"><button class="secondary" @click="load">再読み込み</button><button class="secondary" @click="collectResearch">RSS収集（AIなし）</button><button @click="generate">AI候補を生成</button></div>
+      <div class="actions"><button class="secondary" @click="load">再読み込み</button><button class="secondary" :disabled="collectionLoading" @click="collectResearch">{{ collectionLoading ? 'RSS収集中…' : 'RSS収集（AIなし）' }}</button><button @click="generate">AI候補を生成</button></div>
     </section>
 
     <section class="stats">
@@ -91,6 +99,17 @@ onMounted(() => { load(); loadMemory(); });
 
     <div v-if="notice" class="notice success">{{ notice }}</div>
     <div v-if="error" class="notice danger">{{ error }}</div>
+
+    <section v-if="feedResults.length" class="feed-panel">
+      <div class="feed-heading"><h2>RSS情報源の取得結果</h2><span v-if="collectionStats">新規 {{ collectionStats.inserted }}件 / 合計 {{ collectionStats.total }}件</span></div>
+      <div class="feed-list">
+        <div v-for="feed in feedResults" :key="feed.source" class="feed-item">
+          <div class="feed-main"><strong>{{ feed.source }}</strong><span :class="['feed-status', feed.status]">{{ feed.status === 'ok' ? '成功' : '失敗' }}</span></div>
+          <span v-if="feed.status === 'ok'" class="feed-detail">記事 {{ feed.entriesFound }}件</span>
+          <span v-else class="feed-error">{{ feed.error || '取得に失敗しました' }}</span>
+        </div>
+      </div>
+    </section>
 
     <section class="list-head"><div><h2>投稿候補</h2><p>AIが作成した下書きと判断理由</p></div>
       <select v-model="status" @change="load"><option value="pending">承認待ち</option><option value="approved">承認済み</option><option value="rejected">却下</option><option value="published">公開済み</option><option value="failed">失敗</option></select>
@@ -115,5 +134,5 @@ onMounted(() => { load(); loadMemory(); });
 </template>
 
 <style>
-:root{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#e7edf5;background:#0b1422}*{box-sizing:border-box}body{margin:0}.shell{max-width:920px;margin:0 auto;padding:42px 22px 70px}.topbar{display:flex;justify-content:space-between;align-items:flex-start;gap:18px;margin-bottom:28px}.eyebrow{font-size:11px;letter-spacing:.16em;color:#8ba7c5;font-weight:700}.topbar h1{font-size:32px;margin:6px 0}.sub,.list-head p{color:#93a4b8;margin:0;font-size:14px}.mode,.kind{font-size:10px;letter-spacing:.08em;border:1px solid #31516e;color:#a9c7e6;border-radius:20px;padding:7px 10px;white-space:nowrap}.notice{padding:13px 15px;border-radius:12px;margin:16px 0;font-size:13px;display:flex;gap:10px;flex-wrap:wrap}.warning{background:#302718;border:1px solid #70552a;color:#f1d5a1}.success{background:#123328;border:1px solid #24694d;color:#b7f0d2}.danger{background:#3b2026;border:1px solid #743b48;color:#ffc4ce}.toolbar{display:flex;justify-content:space-between;align-items:end;gap:18px;margin:24px 0}.token{font-size:12px;color:#9aadc2;display:grid;gap:7px;flex:1;max-width:430px}input,select{background:#111f31;border:1px solid #2a4058;color:#e7edf5;border-radius:8px;padding:10px 12px;font:inherit}.actions,.candidate-actions{display:flex;gap:9px}button{background:#d5a64e;color:#17130c;border:0;border-radius:8px;padding:10px 15px;font-weight:700;cursor:pointer}.secondary,.reject{background:#20344a;color:#d7e4f1}.reject{color:#ffc4ce}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:24px 0}.stats>div{background:#111f31;border:1px solid #223850;border-radius:12px;padding:16px}.stats span{display:block;color:#8fa4ba;font-size:12px}.stats strong{display:block;font-size:24px;margin-top:7px}.stats .unit{display:inline;font-size:12px;margin-left:4px}.stats .off{font-size:17px;color:#f1c47e}.memory-panel{background:#101d2c;border:1px solid #263c54;border-radius:12px;padding:16px;margin:22px 0}.memory-heading{display:flex;justify-content:space-between;gap:10px;align-items:baseline;flex-wrap:wrap}.memory-heading h2{font-size:15px;margin:0}.memory-heading span{font-size:11px;color:#8298af}.memory-item{border-top:1px solid #263c54;margin-top:12px;padding-top:10px}.memory-item strong{font-size:11px;color:#d8b36f}.memory-item p{font-size:12px;line-height:1.6;color:#a7b8ca;margin:5px 0 0}.list-head{display:flex;justify-content:space-between;align-items:center;margin:34px 0 14px}.list-head h2{margin:0 0 5px;font-size:20px}.list-head select{min-width:140px}.candidate{background:#111f31;border:1px solid #263c54;border-radius:14px;padding:19px;margin:12px 0}.candidate-meta{display:flex;align-items:center;gap:12px;color:#8fa4ba;font-size:11px;flex-wrap:wrap}.body{font-size:16px;line-height:1.8;white-space:pre-wrap;margin:17px 0}.reason{border-left:2px solid #486581;padding:4px 0 4px 12px;color:#a7b8ca;font-size:12px}.reason p{margin:5px 0}.source-link{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;margin-top:12px;font-size:12px;color:#8fa4ba}.source-link a{color:#a9c7e6;overflow-wrap:anywhere}.candidate-actions{justify-content:flex-end;margin-top:17px}.confidence{margin-left:auto}.empty{border:1px dashed #344b63;border-radius:12px;padding:30px;text-align:center;color:#8fa4ba;font-size:13px}footer{text-align:center;color:#63788f;font-size:11px;margin-top:45px}@media(max-width:640px){.shell{padding:28px 15px 50px}.topbar{display:block}.mode{display:inline-block;margin-top:14px}.toolbar{display:block}.token{max-width:none}.actions{margin-top:12px}.actions button{flex:1}.stats{gap:7px}.stats>div{padding:11px}.stats strong{font-size:20px}.list-head{align-items:flex-end}.candidate{padding:15px}.body{font-size:15px}}
+:root{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#e7edf5;background:#0b1422}*{box-sizing:border-box}body{margin:0}.shell{max-width:920px;margin:0 auto;padding:42px 22px 70px}.topbar{display:flex;justify-content:space-between;align-items:flex-start;gap:18px;margin-bottom:28px}.eyebrow{font-size:11px;letter-spacing:.16em;color:#8ba7c5;font-weight:700}.topbar h1{font-size:32px;margin:6px 0}.sub,.list-head p{color:#93a4b8;margin:0;font-size:14px}.mode,.kind{font-size:10px;letter-spacing:.08em;border:1px solid #31516e;color:#a9c7e6;border-radius:20px;padding:7px 10px;white-space:nowrap}.notice{padding:13px 15px;border-radius:12px;margin:16px 0;font-size:13px;display:flex;gap:10px;flex-wrap:wrap}.warning{background:#302718;border:1px solid #70552a;color:#f1d5a1}.success{background:#123328;border:1px solid #24694d;color:#b7f0d2}.danger{background:#3b2026;border:1px solid #743b48;color:#ffc4ce}.toolbar{display:flex;justify-content:space-between;align-items:end;gap:18px;margin:24px 0}.token{font-size:12px;color:#9aadc2;display:grid;gap:7px;flex:1;max-width:430px}input,select{background:#111f31;border:1px solid #2a4058;color:#e7edf5;border-radius:8px;padding:10px 12px;font:inherit}.actions,.candidate-actions{display:flex;gap:9px}button{background:#d5a64e;color:#17130c;border:0;border-radius:8px;padding:10px 15px;font-weight:700;cursor:pointer}.secondary,.reject{background:#20344a;color:#d7e4f1}.reject{color:#ffc4ce}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:24px 0}.stats>div{background:#111f31;border:1px solid #223850;border-radius:12px;padding:16px}.stats span{display:block;color:#8fa4ba;font-size:12px}.stats strong{display:block;font-size:24px;margin-top:7px}.stats .unit{display:inline;font-size:12px;margin-left:4px}.stats .off{font-size:17px;color:#f1c47e}.memory-panel{background:#101d2c;border:1px solid #263c54;border-radius:12px;padding:16px;margin:22px 0}.memory-heading{display:flex;justify-content:space-between;gap:10px;align-items:baseline;flex-wrap:wrap}.memory-heading h2{font-size:15px;margin:0}.memory-heading span{font-size:11px;color:#8298af}.memory-item{border-top:1px solid #263c54;margin-top:12px;padding-top:10px}.memory-item strong{font-size:11px;color:#d8b36f}.memory-item p{font-size:12px;line-height:1.6;color:#a7b8ca;margin:5px 0 0}.list-head{display:flex;justify-content:space-between;align-items:center;margin:34px 0 14px}.list-head h2{margin:0 0 5px;font-size:20px}.list-head select{min-width:140px}@media(max-width:640px){.feed-list{grid-template-columns:1fr}}.candidate{background:#111f31;border:1px solid #263c54;border-radius:14px;padding:19px;margin:12px 0}.candidate-meta{display:flex;align-items:center;gap:12px;color:#8fa4ba;font-size:11px;flex-wrap:wrap}.body{font-size:16px;line-height:1.8;white-space:pre-wrap;margin:17px 0}.reason{border-left:2px solid #486581;padding:4px 0 4px 12px;color:#a7b8ca;font-size:12px}.reason p{margin:5px 0}.source-link{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;margin-top:12px;font-size:12px;color:#8fa4ba}.source-link a{color:#a9c7e6;overflow-wrap:anywhere}.candidate-actions{justify-content:flex-end;margin-top:17px}.confidence{margin-left:auto} .feed-panel{background:#101d2c;border:1px solid #263c54;border-radius:12px;padding:16px;margin:20px 0}.feed-heading{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap}.feed-heading h2{font-size:15px;margin:0}.feed-heading>span{font-size:11px;color:#8298af}.feed-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:13px}.feed-item{min-width:0;background:#111f31;border:1px solid #263c54;border-radius:9px;padding:11px}.feed-main{display:flex;justify-content:space-between;align-items:center;gap:8px}.feed-main strong{font-size:12px;overflow-wrap:anywhere}.feed-status{font-size:10px;border-radius:20px;padding:3px 8px;white-space:nowrap}.feed-status.ok{background:#153b30;color:#a9e7c9}.feed-status.error{background:#44252c;color:#ffc0ca}.feed-detail,.feed-error{display:block;font-size:11px;margin-top:7px;color:#8fa4ba}.feed-error{color:#ffc0ca}button:disabled{opacity:.55;cursor:wait}.empty{border:1px dashed #344b63;border-radius:12px;padding:30px;text-align:center;color:#8fa4ba;font-size:13px}footer{text-align:center;color:#63788f;font-size:11px;margin-top:45px}@media(max-width:640px){.shell{padding:28px 15px 50px}.topbar{display:block}.mode{display:inline-block;margin-top:14px}.toolbar{display:block}.token{max-width:none}.actions{margin-top:12px}.actions button{flex:1}.stats{gap:7px}.stats>div{padding:11px}.stats strong{font-size:20px}.list-head{align-items:flex-end}.candidate{padding:15px}.body{font-size:15px}}
 </style>
