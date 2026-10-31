@@ -52,6 +52,7 @@ npx wrangler d1 create ai-operated-x-db
 
 ```bash
 npx wrangler d1 migrations apply ai-operated-x-db --local
+npm test
 npm run dev
 ```
 
@@ -70,6 +71,25 @@ npm run dev
 - RSS本文は未信頼データとして扱い、記事内の命令をAIに実行させないプロンプトにしています。
 - 収集記事は `research_items` に保存されます。新規DBではマイグレーションを必ず適用してください。
 - AI生成にはWorkers AIの従量課金が発生する場合があります。利用量と料金を確認してください。
+
+## 本番Workerの更新
+
+本番D1のマイグレーションが未適用の場合は、デプロイ前に適用します。
+
+```bash
+cd worker
+npm install
+npx wrangler d1 migrations apply ai-operated-x-db --remote
+npx wrangler deploy
+```
+
+`APP_ORIGIN` は管理画面のホスト名を決めてから、Worker SecretまたはVariableとして正確なOriginを設定してください。Secretで設定する場合:
+
+```bash
+npx wrangler secret put APP_ORIGIN
+```
+
+管理画面のホスティング先とデプロイ設定は、このリポジトリにはまだ含まれていません。ホスティング先を決定し、Accessで保護したうえで、実際のOriginを `APP_ORIGIN` に設定してください。管理画面の公開ビルドに `ADMIN_TOKEN` を含めてはいけません。
 
 ## 本番化前に必要な作業
 1. Cloudflare Access等による管理画面/APIの認証設定
