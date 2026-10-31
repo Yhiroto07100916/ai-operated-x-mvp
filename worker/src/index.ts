@@ -84,19 +84,51 @@ function parseFeed(xml: string, source: string): Omit<Article, 'id'>[] {
   }
   return output;
 }
-async function collectResearch(env: Env): Promise<number> {
+type FeedResult = { source: string; status: 'ok' | 'error'; entriesFound: number; error?: string };
+type CollectionResult = { inserted: number; feeds: FeedResult[] };
+async function collectResearch(env: Env): Promise<CollectionResult> {
   const fetched = await Promise.allSettled(FEEDS.map(async (feed) => {
+    const source = new URL(feed).hostname;
     const response = await fetch(feed, {
-      headers: { 'user-agent': 'AI-operated-X-Research/1.0' },
+      headers: { 'user-agent': 'AI-operated-X-Research/1.0', accept: 'application/rss+xml, application/atom+xml, application/xml, text/xml' },
       signal: AbortSignal.timeout(10000)
     });
-    if (!response.ok) throw new Error('RSS request failed: ' + response.status);
-    return parseFeed((await response.text()).slice(0, 250000), new URL(feed).hostname);
+    if (!response.ok) throw new Error('HTTP ' + response.status);
+    const declaredLength = Number(response.headers.get('content-length') || 0);
+    if (declaredLength > 250000) throw new Error('Feed exceeds 250 KB limit');
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error('Empty response body');
+    const decoder = new TextDecoder();
+    let xml = '';
+    let bytes = 0;
+    try {
+      while (true) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        bytes += chunk.value.byteLength;
+        if (bytes > 250000) {
+          await reader.cancel();
+          throw new Error('Feed exceeds 250 KB limit');
+        }
+        xml += decoder.decode(chunk.value, { stream: true });
+      }
+      xml += decoder.decode();
+    } finally {
+      reader.releaseLock();
+    }
+    return { source, items: parseFeed(xml, source) };
   }));
   let inserted = 0;
-  for (const result of fetched) {
-    if (result.status !== 'fulfilled') continue;
-    for (const item of result.value) {
+  const feeds: FeedResult[] = [];
+  for (let index = 0; index < fetched.length; index++) {
+    const result = fetched[index];
+    if (result.status === 'rejected') {
+      const reason = result.reason instanceof Error ? result.reason.message : 'Request failed';
+      feeds.push({ source: new URL(FEEDS[index]).hostname, status: 'error', entriesFound: 0, error: reason.slice(0, 120) });
+      continue;
+    }
+    feeds.push({ source: result.value.source, status: 'ok', entriesFound: result.value.items.length });
+    for (const item of result.value.items) {
       const saved = await env.DB.prepare(
         'INSERT OR IGNORE INTO research_items (source_name, title, url, content, published_at, fetched_at) VALUES (?, ?, ?, ?, ?, ?)'
       ).bind(item.source_name, item.title, item.url, item.content, item.published_at, new Date().toISOString()).run();
@@ -104,7 +136,7 @@ async function collectResearch(env: Env): Promise<number> {
     }
   }
   if (inserted) await log(env.DB, 'research.collected', null, inserted + ' new RSS items collected.');
-  return inserted;
+  return { inserted, feeds };
 }
 function parseDrafts(raw: string): Draft[] {
   const first = raw.indexOf('[');
@@ -219,9 +251,14 @@ export default {
         const rows = await env.DB.prepare('SELECT * FROM agent_memory ORDER BY created_at DESC LIMIT 100').all();
         response = json({ items: rows.results || [] });
       } else if (url.pathname === '/api/research/collect' && request.method === 'POST') {
-        const inserted = await collectResearch(env);
+        const collection = await collectResearch(env);
         const total = await env.DB.prepare('SELECT COUNT(*) AS count FROM research_items').first<{ count: number }>();
-        response = json({ inserted, total: Number(total?.count || 0), aiGenerationPerformed: false });
+        response = json({
+          inserted: collection.inserted,
+          total: Number(total?.count || 0),
+          feeds: collection.feeds,
+          aiGenerationPerformed: false
+        });
       } else if (url.pathname === '/api/generate' && request.method === 'POST') {
         response = json(await generateCandidates(env, 3), 201);
       } else {
