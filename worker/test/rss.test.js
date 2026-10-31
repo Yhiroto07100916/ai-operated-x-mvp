@@ -14,7 +14,7 @@ test('parses RSS items, decodes entities, and strips embedded markup', () => {
   assert.equal(item.url, 'https://example.com/story?a=1&b=2');
   assert.equal(item.content, 'Useful research');
   assert.equal(item.source_name, 'example.com');
-  assert.equal(item.published_at, 'Sat, 31 Oct 2026 10:00:00 GMT');
+  assert.equal(item.published_at, '2026-10-31T10:00:00.000Z');
 });
 
 test('parses Atom links expressed as href attributes', () => {
@@ -25,6 +25,7 @@ test('parses Atom links expressed as href attributes', () => {
   const [item] = parseFeed(xml, 'example.org');
   assert.equal(item.url, 'https://example.org/entry');
   assert.equal(item.content, 'Summary text');
+  assert.equal(item.published_at, '2026-10-31T10:00:00.000Z');
 });
 
 test('rejects unsafe URLs and incomplete entries', () => {
@@ -43,4 +44,13 @@ test('limits parsing to twelve entries and bounds field lengths', () => {
   const parsed = parseFeed(`<rss><channel>${items}</channel></rss>`, 'example.com');
   assert.equal(parsed.length, 12);
   assert.ok(parsed.every((item) => item.title.length <= 240 && item.content.length <= 1600));
+});
+
+test('normalizes invalid publication dates to null', () => {
+  const xml = `<rss><channel><item>
+    <title>Undated story</title><link>https://example.com/undated</link>
+    <description>Story content</description><pubDate>not-a-date</pubDate>
+  </item></channel></rss>`;
+  const [item] = parseFeed(xml, 'example.com');
+  assert.equal(item.published_at, null);
 });
