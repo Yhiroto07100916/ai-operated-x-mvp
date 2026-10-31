@@ -22,7 +22,7 @@ test('OAuth tokens are encrypted at rest and can be decrypted', async () => {
 });
 
 test('token encryption rejects malformed encryption keys', async () => {
-  await assert.rejects(() => encryptTokens({ X_TOKEN_ENCRYPTION_KEY: 'short' }, {
+  await assert.rejects(() => encryptTokens({ X_TOKEN_ENCRYPTION_KEY: 'c2hvcnQ=' }, {
     access_token: 'x', expires_at: 1, scope: 'tweet.write'
   }), /32-byte key/);
 });
