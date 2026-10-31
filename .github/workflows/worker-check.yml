@@ -1,19 +1,22 @@
-name: Worker checks
+name: Application checks
 
 on:
   pull_request:
     paths:
       - "worker/**"
+      - "app/**"
       - ".github/workflows/worker-check.yml"
   push:
     branches: [main]
     paths:
       - "worker/**"
+      - "app/**"
       - ".github/workflows/worker-check.yml"
 
 jobs:
-  typecheck:
+  worker-typecheck:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: worker
@@ -21,6 +24,21 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 22.23.4
       - run: npm install
       - run: npm run typecheck
+
+  dashboard-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.4
+      - run: npm install
+      - run: npm run typecheck
+      - run: npm run build

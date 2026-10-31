@@ -13,6 +13,7 @@
 4. Up to 15 recent entries are provided to Workers AI as untrusted reference material.
 5. AI returns structured draft candidates with an article index, rationale, and confidence.
 6. Worker validates source index, body length, URL absence, and recent exact duplicates.
+7. Human approval/rejection is stored as a review signal in `agent_memory`; the next generation can use recent signals without treating them as absolute rules.
 7. Candidate is stored as `pending`; a human reviews it in the dashboard.
 
 ## Safety boundaries
@@ -20,7 +21,7 @@
 - The model is instructed not to invent human experiences or unsupported facts.
 - Candidates are drafts only. Approval does not publish to X.
 - X OAuth, publishing, reposting, likes, replies, and follows are not implemented.
-- Production must configure an admin token and protect the dashboard/API with Cloudflare Access.
+- Production must configure an admin token, set `APP_ORIGIN` to the dashboard origin, set `APP_ENV=production`, and protect the dashboard/API with Cloudflare Access.
 
 ## API
 - `GET /api/health`
