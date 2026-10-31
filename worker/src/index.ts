@@ -358,6 +358,12 @@ export default {
           const body = await request.json().catch(() => ({})) as { note?: unknown };
           const note = typeof body.note === 'string' ? body.note.trim().slice(0, 500) : '';
           const status = action === 'approve' ? 'approved' : 'rejected';
+          const currentMode = await getPublishingMode(env.DB);
+          if (action === 'approve' && currentMode === 'paused') {
+            response = json({ error: 'Publishing is paused. Resume publishing before approving a candidate.' }, 409);
+          } else if (action === 'approve' && !env.X_USER_ACCESS_TOKEN) {
+            response = json({ error: 'X user access token is not configured. Approval cannot publish yet.' }, 409);
+          } else {
           const reviewedCandidate = await env.DB.prepare(
             'SELECT body, source_title, rationale FROM candidates WHERE id = ? AND status = ?'
           ).bind(candidateId, 'pending').first<{ body: string; source_title: string | null; rationale: string }>();
@@ -386,6 +392,7 @@ export default {
             } else {
               response = json({ ok: true, status });
             }
+          }
           }
         } else response = json({ error: 'Not found' }, 404);
       }
