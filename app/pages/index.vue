@@ -117,12 +117,19 @@ async function generate() {
   } catch (e) { error.value = e instanceof Error ? e.message : '生成に失敗しました'; }
 }
 function formatDate(value: string) { return new Date(value).toLocaleString('ja-JP'); }
+async function reloadDashboard() {
+  if (!token.value) {
+    error.value = '管理トークンを入力してください';
+    return;
+  }
+  await Promise.all([load(), loadMemory(), loadTrends(), loadSettings()]);
+}
+
 onMounted(() => {
   const oauthResult = new URLSearchParams(window.location.search).get('x_oauth');
-  if (oauthResult === 'connected') notice.value = 'Xアカウントとの連携が完了しました';
-  if (oauthResult === 'failed') error.value = 'Xアカウント連携に失敗しました。設定と権限を確認してください';
+  if (oauthResult === 'connected') notice.value = 'Xアカウントとの連携が完了しました。管理トークンを入力して「再読み込み」してください';
+  if (oauthResult === 'failed') error.value = 'Xアカウント連携に失敗しました。WorkerのログとX OAuth設定を確認してください';
   if (oauthResult) window.history.replaceState({}, '', window.location.pathname);
-  load(); loadMemory(); loadTrends(); loadSettings();
 });
 </script>
 
@@ -159,7 +166,7 @@ onMounted(() => {
 
     <section class="toolbar">
       <label class="token">管理トークン（本番環境では必須）<input v-model="token" type="password" placeholder="ローカル開発では空欄で可"></label>
-      <div class="actions"><button class="secondary" @click="load">再読み込み</button><button class="secondary" :disabled="collectionLoading" @click="collectResearch">{{ collectionLoading ? 'RSS収集中…' : 'RSS収集（AIなし）' }}</button><button @click="generate">AI候補を生成</button></div>
+      <div class="actions"><button class="secondary" @click="reloadDashboard">再読み込み</button><button class="secondary" :disabled="collectionLoading" @click="collectResearch">{{ collectionLoading ? 'RSS収集中…' : 'RSS収集（AIなし）' }}</button><button @click="generate">AI候補を生成</button></div>
     </section>
 
     <section class="trend-panel">
