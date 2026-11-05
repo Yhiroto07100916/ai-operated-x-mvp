@@ -60,10 +60,14 @@ async function authorized(request: Request, env: Env): Promise<boolean> {
   if (env.APP_ENV !== 'production' && !env.ADMIN_TOKEN) return true;
   const token = request.headers.get('Authorization')?.replace(/^Bearer\s+/i, '');
   if (!token) return false;
-  const hash = await sessionHash(token);
-  const row = await env.DB.prepare('SELECT token_hash FROM admin_sessions WHERE token_hash = ? AND expires_at > ?')
-    .bind(hash, new Date().toISOString()).first<{ token_hash: string }>();
-  return Boolean(row);
+  try {
+    const hash = await sessionHash(token);
+    const row = await env.DB.prepare('SELECT token_hash FROM admin_sessions WHERE token_hash = ? AND expires_at > ?')
+      .bind(hash, new Date().toISOString()).first<{ token_hash: string }>();
+    return Boolean(row);
+  } catch {
+    return false;
+  }
 }
 function makeId(): string { return crypto.randomUUID(); }
 async function log(db: D1Database, eventType: string, entityId: string | null, detail: string) {
