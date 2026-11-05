@@ -48,10 +48,22 @@ function cors(request: Request, response: Response, env: Env): Response {
   headers.set('access-control-allow-headers', 'Content-Type, Authorization');
   return new Response(response.body, { status: response.status, headers });
 }
-function authorized(request: Request, env: Env): boolean {
+async function sessionHash(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
+}
+function createSessionToken(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+async function authorized(request: Request, env: Env): Promise<boolean> {
   if (env.APP_ENV !== 'production' && !env.ADMIN_TOKEN) return true;
   const token = request.headers.get('Authorization')?.replace(/^Bearer\s+/i, '');
-  return Boolean(env.ADMIN_TOKEN && token && token === env.ADMIN_TOKEN);
+  if (!token) return false;
+  const hash = await sessionHash(token);
+  const row = await env.DB.prepare('SELECT token_hash FROM admin_sessions WHERE token_hash = ? AND expires_at > ?')
+    .bind(hash, new Date().toISOString()).first<{ token_hash: string }>();
+  return Boolean(row);
 }
 function makeId(): string { return crypto.randomUUID(); }
 async function log(db: D1Database, eventType: string, entityId: string | null, detail: string) {
@@ -316,6 +328,26 @@ export default {
         return Response.redirect((env.APP_ORIGIN || 'https://ai-operated-x-admin.pages.dev') + '/?x_oauth=failed', 302);
       }
     }
+    if (url.pathname === '/api/auth/login' && request.method === 'POST') {
+      try {
+        if (!env.ADMIN_TOKEN) return cors(request, json({ error: 'Admin login is not configured.' }, 503), env);
+        const body = await request.json().catch(() => ({})) as { password?: unknown };
+        const password = typeof body.password === 'string' ? body.password : '';
+        if (!password || password !== env.ADMIN_TOKEN) return cors(request, json({ error: 'パスワードが正しくありません' }, 401), env);
+        const sessionToken = createSessionToken();
+        const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+        await env.DB.prepare('INSERT INTO admin_sessions (token_hash, expires_at, created_at) VALUES (?, ?, ?)')
+          .bind(await sessionHash(sessionToken), expiresAt, new Date().toISOString()).run();
+        return cors(request, json({ sessionToken, expiresAt }), env);
+      } catch (error) {
+        console.error('Admin login failed', error instanceof Error ? error.message : String(error));
+        return cors(request, json({ error: 'ログイン処理に失敗しました' }, 500), env);
+      }
+    }
+    if (url.pathname === '/api/auth/session' && request.method === 'GET') {
+      const valid = await authorized(request, env);
+      return cors(request, json({ authenticated: valid }, valid ? 200 : 401), env);
+    }
     if (url.pathname === '/api/health' && request.method === 'GET') {
       let oauthConnected = false;
       try { oauthConnected = (await getOAuthStatus(env)).connected; } catch { oauthConnected = false; }
@@ -323,10 +355,14 @@ export default {
         ok: true, mode: env.AI ? 'ai' : 'unconfigured', publishingEnabled: Boolean(env.X_USER_ACCESS_TOKEN) || oauthConnected, time: new Date().toISOString()
       }), env);
     }
-    if (!authorized(request, env)) return cors(request, json({ error: 'Unauthorized' }, 401), env);
+    if (!(await authorized(request, env))) return cors(request, json({ error: 'Unauthorized' }, 401), env);
     let response: Response;
     try {
-      if (url.pathname === '/api/auth/x/start' && request.method === 'POST') {
+      if (url.pathname === '/api/auth/logout' && request.method === 'POST') {
+        const token = request.headers.get('Authorization')?.replace(/^Bearer\s+/i, '');
+        if (token) await env.DB.prepare('DELETE FROM admin_sessions WHERE token_hash = ?').bind(await sessionHash(token)).run();
+        response = json({ ok: true });
+      } else if (url.pathname === '/api/auth/x/start' && request.method === 'POST') {
         const authorizeUrl = await beginOAuth(env);
         response = json({ authorizeUrl });
       } else if (url.pathname === '/api/auth/x/status' && request.method === 'GET') {
